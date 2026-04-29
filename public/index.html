@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TreinaLive</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body data-role="host">
+    <header class="topbar">
+        <div>
+            <strong class="brand">TreinaLive</strong>
+            <span id="roomStatus" class="room-status">Plataforma de treinamentos</span>
+        </div>
+        <div class="topbar-actions">
+            <span id="userStatus" class="room-status">Não autenticado</span>
+            <button id="logoutButton" class="secondary-button" hidden>Sair</button>
+            <div class="connection-pill" id="connectionStatus">offline</div>
+        </div>
+    </header>
+
+    <main class="app-shell">
+        <!-- TELA DE LOGIN -->
+        <section class="login-panel" id="authPanel" aria-label="Autenticação">
+            <div class="login-container">
+                <div class="login-header">
+                    <h1>TreinaLive</h1>
+                    <p>Plataforma de treinamentos online</p>
+                </div>
+
+                <form id="loginForm" class="login-form">
+                    <div class="form-group">
+                        <label for="usernameInput">Usuário</label>
+                        <input id="usernameInput" type="text" value="mestre" maxlength="60" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="passwordInput">Senha</label>
+                        <input id="passwordInput" type="password" value="mestre123" maxlength="60" required>
+                    </div>
+                    <button class="primary-button" type="submit">Entrar</button>
+                    <p id="authMessage" class="form-message" role="status"></p>
+                </form>
+            </div>
+        </section>
+
+        <!-- DASHBOARD -->
+        <section class="dashboard" id="dashboardPanel" hidden>
+            <nav class="dashboard-tabs">
+                <button class="tab-button active" data-tab="live">Ao Vivo</button>
+                <button class="tab-button" data-tab="recordings">Aulas Gravadas</button>
+                <button class="tab-button" data-tab="materials">Materiais</button>
+            </nav>
+
+            <!-- TAB: AO VIVO -->
+            <div class="tab-content" id="tab-live">
+                <div class="section-header">
+                    <h2>Aulas ao vivo</h2>
+                    <p>Salas disponíveis para participação</p>
+                </div>
+                <div id="liveRoomsList" class="rooms-grid"></div>
+            </div>
+
+            <!-- TAB: AULAS GRAVADAS -->
+            <div class="tab-content" id="tab-recordings" hidden>
+                <div class="section-header">
+                    <h2>Biblioteca de aulas</h2>
+                    <p>Aulas gravadas disponíveis para revisão</p>
+                </div>
+                <div id="lessonList" class="lessons-grid"></div>
+            </div>
+        </section>
+
+        <!-- SALA AO VIVO -->
+        <section class="live-stage" id="livePanel" hidden>
+            <div class="stage-header">
+                <div>
+                    <p class="eyebrow">Treinamento ao vivo</p>
+                    <h2 id="stageRoomName">Sala</h2>
+                </div>
+                <div class="live-actions">
+                    <button id="cameraButton" class="primary-button host-control">Ligar câmera</button>
+                    <button id="muteButton" class="icon-button host-control" title="Ativar ou silenciar microfone">Mic</button>
+                    <button id="shareButton" class="icon-button host-control" title="Espelhar a tela do computador">Espelhar tela</button>
+                    <button id="recordButton" class="record-button host-control" title="Gravar a aula">Gravar aula</button>
+                    <button id="leaveButton" class="secondary-button">Sair da sala</button>
+                </div>
+            </div>
+
+            <div class="video-layout">
+                <article class="video-tile host-tile">
+                    <video id="localVideo" autoplay muted playsinline></video>
+                    <div class="video-overlay">
+                        <span id="localRoleLabel">Local</span>
+                        <strong id="localNameLabel">Você</strong>
+                    </div>
+                    <div id="recordingStatus" class="recording-status" hidden>Gravando</div>
+                </article>
+
+                <aside>
+                    <div class="participants-header">
+                        <strong>Participantes</strong>
+                        <span id="participantCount">0 online</span>
+                    </div>
+                    <div id="remoteGrid" class="student-grid" aria-label="Webcams dos participantes"></div>
+                </aside>
+            </div>
+        </section>
+
+        <!-- PAINEL DE GESTÃO (só para mestres/admins) -->
+        <section class="workspace" id="managementPanel" hidden>
+            <article class="panel host-panel">
+                <div class="panel-heading">
+                    <div>
+                        <p class="eyebrow">Host</p>
+                        <h2>Criar nova sala ao vivo</h2>
+                    </div>
+                </div>
+
+                <form id="createRoomForm" class="create-room-form">
+                    <div class="form-group">
+                        <label for="newRoomName">Nome da sala</label>
+                        <input id="newRoomName" type="text" placeholder="Ex: Treinamento Anestesia" maxlength="40" required>
+                    </div>
+                    <button class="primary-button" type="submit">Criar sala</button>
+                </form>
+            </article>
+        </section>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>
