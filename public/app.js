@@ -150,7 +150,6 @@ recordButton.addEventListener("click", async () => {
 });
 
 leaveButton.addEventListener("click", leaveRoom);
-refreshButton.addEventListener("click", loadFiles);
 refreshUsersButton.addEventListener("click", loadUsers);
 window.addEventListener("beforeunload", () => {
     if (session) {
@@ -375,53 +374,6 @@ async function joinRoomByName(roomName) {
     // Iniciar polling
     startPolling();
     publishActiveStream();
-}
-    if (!auth?.user) {
-        authMessage.textContent = "Faca login antes de entrar na sala.";
-        return;
-    }
-    if (session) {
-        await leaveRoom();
-    }
-
-    const room = roomInput.value.trim() || "sala-principal";
-    const role = auth.user.role === "aluno" ? "student" : "host";
-    body.dataset.role = role;
-    connectionStatus.textContent = "entrando";
-
-    const response = await apiFetch("/api/session/join", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ room })
-    });
-
-    if (!response.ok) {
-        alert("Nao foi possivel entrar na sala.");
-        connectionStatus.textContent = "offline";
-        return;
-    }
-
-    session = await response.json();
-    session.name = auth.user.name;
-    session.role = role;
-    joinPanel.hidden = true;
-    localNameLabel.textContent = auth.user.name;
-    localRoleLabel.textContent = role === "host" ? "Host local" : "Aluno local";
-    roomStatus.textContent = `Sala ao vivo: ${session.room}`;
-    connectionStatus.textContent = "online";
-
-    if (role === "host") {
-        await startCamera();
-    }
-
-    session.peers.forEach((peer) => {
-        participants.set(peer.id, peer);
-        createPeerConnection(peer, true);
-    });
-    updateParticipants();
-
-    pollStopped = false;
-    pollSignals();
 }
 
 async function leaveRoom() {

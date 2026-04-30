@@ -68,6 +68,21 @@
                 </div>
                 <div id="lessonList" class="lessons-grid"></div>
             </div>
+
+            <!-- TAB: MATERIAIS -->
+            <div class="tab-content" id="tab-materials" hidden>
+                <div class="section-header">
+                    <h2>Materiais de treinamento</h2>
+                    <p>Arquivos e recursos disponíveis por aula</p>
+                </div>
+                <div style="margin-bottom: 20px;">
+                    <label for="lessonSelectMaterials">Selecione uma aula:</label>
+                    <select id="lessonSelectMaterials" style="padding: 8px; border-radius: 6px; border: 1px solid var(--line);">
+                        <option value="">-- Carregando aulas --</option>
+                    </select>
+                </div>
+                <div id="materialsList" class="files-grid"></div>
+            </div>
         </section>
 
         <!-- SALA AO VIVO -->
@@ -123,6 +138,77 @@
                     </div>
                     <button class="primary-button" type="submit">Criar sala</button>
                 </form>
+            </article>
+
+            <article class="panel host-panel">
+                <div class="panel-heading">
+                    <div>
+                        <p class="eyebrow">Gravações</p>
+                        <h2>Fazer upload de aula</h2>
+                    </div>
+                </div>
+
+                <form id="uploadForm" class="upload-form">
+                    <div class="form-group">
+                        <label for="lessonTitleInput">Título da aula (opcional)</label>
+                        <input id="lessonTitleInput" type="text" placeholder="Ex: Aula 1 - Treinamento" maxlength="60">
+                    </div>
+                    <div class="form-group">
+                        <label for="fileInput">Selecione um arquivo</label>
+                        <input id="fileInput" name="file" type="file" accept="video/*,image/*,.pdf" required>
+                    </div>
+                    <button class="primary-button" type="submit">Enviar arquivo</button>
+                    <p id="uploadMessage" class="form-message" role="status"></p>
+                </form>
+
+                <div class="section-header">
+                    <h2>Arquivos enviados</h2>
+                </div>
+                <div id="fileList" class="files-grid"></div>
+            </article>
+
+            <article class="panel host-panel">
+                <div class="panel-heading">
+                    <div>
+                        <p class="eyebrow">Gerenciamento</p>
+                        <h2>Usuários da plataforma</h2>
+                    </div>
+                </div>
+
+                <form id="userForm" class="user-form">
+                    <div class="form-group">
+                        <label for="newUserNameInput">Nome completo</label>
+                        <input id="newUserNameInput" type="text" maxlength="60" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="newUsernameInput">Nome de usuário</label>
+                        <input id="newUsernameInput" type="text" maxlength="60" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="newPasswordInput">Senha</label>
+                        <input id="newPasswordInput" type="password" maxlength="60" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="newRoleInput">Tipo de usuário</label>
+                        <select id="newRoleInput" required>
+                            <option value="aluno">Aluno</option>
+                            <option value="administrador">Administrador</option>
+                            <option value="mestre">Mestre</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="newCompanyInput">Empresa/Departamento</label>
+                        <input id="newCompanyInput" type="text" maxlength="60">
+                    </div>
+                    <button class="primary-button" type="submit">Criar usuário</button>
+                    <p id="userMessage" class="form-message" role="status"></p>
+                </form>
+
+                <div class="section-header">
+                    <h2>Usuários cadastrados</h2>
+                    <button id="refreshUsersButton" class="secondary-button">Atualizar lista</button>
+                </div>
+                <div id="userList" class="users-list"></div>
             </article>
         </section>
     </main>

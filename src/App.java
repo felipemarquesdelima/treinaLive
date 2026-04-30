@@ -29,6 +29,7 @@ public class App {
     private static final Path PUBLIC_DIR = Paths.get("public").toAbsolutePath().normalize();
     private static final Path UPLOAD_DIR = Paths.get("uploads").toAbsolutePath().normalize();
     private static final Path RECORDINGS_FILE = UPLOAD_DIR.resolve("recordings.tsv").toAbsolutePath().normalize();
+    private static final Path MATERIALS_FILE = UPLOAD_DIR.resolve("materials.tsv").toAbsolutePath().normalize();
     private static final Map<String, Room> ROOMS = new HashMap<>();
     private static final Map<String, UserAccount> USERS = new LinkedHashMap<>();
     private static final Map<String, UserAccount> TOKENS = new HashMap<>();
@@ -43,6 +44,7 @@ public class App {
         server.createContext("/api/auth/logout", new LogoutHandler());
         server.createContext("/api/users", new UsersHandler());
         server.createContext("/api/lessons", new LessonsHandler());
+        server.createContext("/api/materials", new MaterialsHandler());
         server.createContext("/api/rooms", new RoomsHandler());
         server.createContext("/api/session/join", new JoinHandler());
         server.createContext("/api/session/poll", new PollHandler());
@@ -206,6 +208,23 @@ public class App {
             }
 
             sendJson(exchange, 200, recordingsJson(loadRecordings()));
+        }
+    }
+
+    private static class MaterialsHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                sendJson(exchange, 405, "{\"error\":\"Metodo nao permitido\"}");
+                return;
+            }
+
+            UserAccount account = requireAuth(exchange);
+            if (account == null) {
+                return;
+            }
+
+            sendJson(exchange, 200, materialsJson(loadMaterials()));
         }
     }
 
@@ -541,6 +560,15 @@ public class App {
                         Instant.ofEpochMilli(destination.toFile().lastModified()).toString(),
                         Files.probeContentType(destination)
                 ));
+            } else if ("true".equalsIgnoreCase(query.getOrDefault("material", "false"))) {
+                String lessonTitle = limit(query.getOrDefault("lessonTitle", "Material"), 90);
+                appendMaterial(new Material(
+                        lessonTitle.isBlank() ? "Material" : lessonTitle,
+                        destination.getFileName().toString(),
+                        Files.size(destination),
+                        Instant.ofEpochMilli(destination.toFile().lastModified()).toString(),
+                        Files.probeContentType(destination)
+                ));
             }
             sendJson(exchange, 201, "{\"name\":\"" + escapeJson(destination.getFileName().toString()) + "\"}");
         }
@@ -716,6 +744,80 @@ public class App {
                     .append('}');
         }
         json.append(']');
+        return json.toString();
+    }
+
+    private static synchronized void appendMaterial(Material material) throws IOException {
+        Files.createDirectories(UPLOAD_DIR);
+        String line = escapeTsv(material.lessonTitle) + "\t"
+                + escapeTsv(material.fileName) + "\t"
+                + material.size + "\t"
+                + escapeTsv(material.uploadedAt) + "\t"
+                + escapeTsv(material.type) + System.lineSeparator();
+        Files.writeString(MATERIALS_FILE, line, StandardCharsets.UTF_8,
+                Files.exists(MATERIALS_FILE)
+                        ? java.nio.file.StandardOpenOption.APPEND
+                        : java.nio.file.StandardOpenOption.CREATE);
+    }
+
+    private static synchronized List<Material> loadMaterials() throws IOException {
+        List<Material> materials = new ArrayList<>();
+        if (!Files.exists(MATERIALS_FILE)) {
+            return materials;
+        }
+
+        for (String line : Files.readAllLines(MATERIALS_FILE, StandardCharsets.UTF_8)) {
+            String[] parts = line.split("\t", -1);
+            if (parts.length < 5) {
+                continue;
+            }
+            Path file = UPLOAD_DIR.resolve(unescapeTsv(parts[1])).normalize();
+            if (!file.startsWith(UPLOAD_DIR) || !Files.exists(file)) {
+                continue;
+            }
+            long size = parseLong(parts[2], file.toFile().length());
+            materials.add(new Material(
+                    unescapeTsv(parts[0]),
+                    file.getFileName().toString(),
+                    size,
+                    unescapeTsv(parts[3]),
+                    unescapeTsv(parts[4])
+            ));
+        }
+        materials.sort(Comparator.comparing((Material item) -> item.uploadedAt).reversed());
+        return materials;
+    }
+
+    private static String materialsJson(List<Material> materials) {
+        Map<String, List<Material>> byLesson = new LinkedHashMap<>();
+        for (Material material : materials) {
+            byLesson.computeIfAbsent(material.lessonTitle, k -> new ArrayList<>()).add(material);
+        }
+
+        StringBuilder json = new StringBuilder("{");
+        int lessonIndex = 0;
+        for (Map.Entry<String, List<Material>> entry : byLesson.entrySet()) {
+            if (lessonIndex > 0) {
+                json.append(',');
+            }
+            json.append("\"").append(escapeJson(entry.getKey())).append("\":[");
+            for (int i = 0; i < entry.getValue().size(); i++) {
+                Material material = entry.getValue().get(i);
+                if (i > 0) {
+                    json.append(',');
+                }
+                json.append('{')
+                        .append("\"lessonTitle\":\"").append(escapeJson(material.lessonTitle)).append("\",")
+                        .append("\"name\":\"").append(escapeJson(material.fileName)).append("\",")
+                        .append("\"size\":").append(material.size).append(',')
+                        .append("\"uploadedAt\":\"").append(escapeJson(material.uploadedAt)).append("\",")
+                        .append("\"type\":\"").append(escapeJson(material.type)).append("\"")
+                        .append('}');
+            }
+            json.append(']');
+            lessonIndex++;
+        }
+        json.append("}");
         return json.toString();
     }
 
@@ -1113,6 +1215,9 @@ public class App {
     }
 
     private record LessonRecording(String title, String fileName, long size, String modified, String type) {
+    }
+
+    private record Material(String lessonTitle, String fileName, long size, String uploadedAt, String type) {
     }
 
     private record MultipartFile(String fileName, byte[] content) {
