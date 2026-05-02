@@ -15,7 +15,11 @@ const connectionStatus = document.querySelector("#connectionStatus");
 const cameraButton = document.querySelector("#cameraButton");
 const muteButton = document.querySelector("#muteButton");
 const shareButton = document.querySelector("#shareButton");
+const requestScreenButton = document.querySelector("#requestScreenButton");
 const recordButton = document.querySelector("#recordButton");
+const streamQualityControl = document.querySelector("#streamQualityControl");
+const streamQualitySelect = document.querySelector("#streamQualitySelect");
+const fullscreenButton = document.querySelector("#fullscreenButton");
 const leaveButton = document.querySelector("#leaveButton");
 const localVideo = document.querySelector("#localVideo");
 const localRoleLabel = document.querySelector("#localRoleLabel");
@@ -23,10 +27,19 @@ const localNameLabel = document.querySelector("#localNameLabel");
 const recordingStatus = document.querySelector("#recordingStatus");
 const remoteGrid = document.querySelector("#remoteGrid");
 const participantCount = document.querySelector("#participantCount");
+const participantList = document.querySelector("#participantList");
 const uploadForm = document.querySelector("#uploadForm");
 const uploadMessage = document.querySelector("#uploadMessage");
-const lessonSelectInput = document.querySelector("#lessonSelectInput");
-const lessonList = document.querySelector("#lessonList");
+const liveUploadForm = document.querySelector("#liveUploadForm");
+const liveUploadMessage = document.querySelector("#liveUploadMessage");
+const lessonTitleInput = document.querySelector("#lessonTitleInput");
+const lessonSelectUpload = document.querySelector("#lessonSelectUpload");
+const lessonSelectRecordings = document.querySelector("#lessonSelectRecordings");
+const lessonSelectMaterials = document.querySelector("#lessonSelectMaterials");
+const recordingsList = document.querySelector("#recordingsList");
+const materialsList = document.querySelector("#materialsList");
+const liveMaterialsList = document.querySelector("#liveMaterialsList");
+const recordingsTitle = document.querySelector("#recordingsTitle");
 const fileList = document.querySelector("#fileList");
 const liveRoomsList = document.querySelector("#liveRoomsList");
 const refreshUsersButton = document.querySelector("#refreshUsersButton");
@@ -39,9 +52,10 @@ const newPasswordInput = document.querySelector("#newPasswordInput");
 const newRoleInput = document.querySelector("#newRoleInput");
 const newCompanyInput = document.querySelector("#newCompanyInput");
 const newRoomNameInput = document.querySelector("#newRoomName");
+const roomVisibilityInput = document.querySelector("#roomVisibilityInput");
+const roomPasswordGroup = document.querySelector("#roomPasswordGroup");
+const roomPasswordInput = document.querySelector("#roomPasswordInput");
 const stageRoomName = document.querySelector("#stageRoomName");
-
-// Elementos das tabs
 const tabButtons = document.querySelectorAll(".tab-button");
 const tabLive = document.querySelector("#tab-live");
 const tabRecordings = document.querySelector("#tab-recordings");
@@ -61,10 +75,20 @@ let localStream = null;
 let screenStream = null;
 let mediaRecorder = null;
 let recordedChunks = [];
+let activeRecordingLessonTitle = "";
+let presentationOwnerId = "";
 let pollStopped = true;
+let liveMaterialsRefreshId = null;
+let liveMaterialsSignature = "";
 let muted = false;
 let auth = JSON.parse(localStorage.getItem("treinalive_auth") || "null");
-
+const ALL_MATERIALS_VALUE = "__all_materials__";
+const STREAM_QUALITY_PRESETS = {
+    auto: { label: "Auto", targetHeight: 0, maxBitrate: 0 },
+    "480p": { label: "480p", targetHeight: 480, maxBitrate: 800000 },
+    "720p": { label: "720p", targetHeight: 720, maxBitrate: 1800000 },
+    "1080p": { label: "1080p", targetHeight: 1080, maxBitrate: 4000000 }
+};
 loginForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     await login();
@@ -73,11 +97,27 @@ loginForm.addEventListener("submit", async (event) => {
 createRoomForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const roomName = newRoomNameInput.value.trim();
+    const privateRoom = roomVisibilityInput.value === "private";
+    const password = roomPasswordInput.value.trim();
+
+    if (privateRoom && !password) {
+        roomPasswordInput.focus();
+        return;
+    }
+
     if (roomName) {
-        await joinRoomByName(roomName);
+        const joined = await joinRoomByName(roomName, { privateRoom, password });
+        if (!joined) {
+            return;
+        }
         newRoomNameInput.value = "";
+        roomPasswordInput.value = "";
+        roomVisibilityInput.value = "public";
+        updateRoomPrivacyUi();
     }
 });
+
+roomVisibilityInput.addEventListener("change", updateRoomPrivacyUi);
 
 logoutButton.addEventListener("click", logout);
 
@@ -86,15 +126,28 @@ tabButtons.forEach(button => {
     button.addEventListener("click", () => {
         const tab = button.dataset.tab;
         
-        // Atualizar botões
+        // Atualizar botoes
         tabButtons.forEach(btn => btn.classList.remove("active"));
         button.classList.add("active");
         
-        // Atualizar conteúdo
+        // Atualizar conteudo
         tabLive.hidden = tab !== "live";
         tabRecordings.hidden = tab !== "recordings";
         tabMaterials.hidden = tab !== "materials";
     });
+});
+
+lessonSelectRecordings.addEventListener("change", async (event) => {
+    await loadLessonFiles(event.target.value.trim());
+});
+
+lessonSelectMaterials.addEventListener("change", async (event) => {
+    const title = event.target.value.trim();
+    if (!title || title === ALL_MATERIALS_VALUE) {
+        await loadAllMaterials();
+        return;
+    }
+    await loadMaterialFiles(title);
 });
 
 cameraButton.addEventListener("click", async () => {
@@ -109,19 +162,21 @@ cameraButton.addEventListener("click", async () => {
     await startCamera();
 });
 
-muteButton.addEventListener("click", () => {
-    if (!localStream) {
+muteButton.addEventListener("click", async () => {
+    if (!hasLocalAudio()) {
+        await startMicrophone();
         return;
     }
 
-    muted = !muted;
-    localStream.getAudioTracks().forEach((track) => {
-        track.enabled = !muted;
-    });
-    muteButton.textContent = muted ? "Mudo" : "Mic";
+    setLocalMuted(!muted);
 });
 
 shareButton.addEventListener("click", async () => {
+    if (!isPresentationOwner()) {
+        await requestScreenControl();
+        return;
+    }
+
     if (screenStream) {
         stopScreenShare();
         return;
@@ -132,13 +187,50 @@ shareButton.addEventListener("click", async () => {
             await startCamera();
         }
         screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-        localVideo.srcObject = screenStream;
+        if (isPresentationOwner()) {
+            localVideo.srcObject = screenStream;
+        }
         shareButton.textContent = "Parar espelhamento";
         publishActiveStream();
         screenStream.getVideoTracks()[0].addEventListener("ended", stopScreenShare);
     } catch (error) {
         alert("Compartilhamento de tela cancelado.");
     }
+});
+
+requestScreenButton.addEventListener("click", requestScreenControl);
+participantList.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-participant-action]");
+    if (!button) {
+        return;
+    }
+
+    const participantId = button.dataset.participantId;
+    if (button.dataset.participantAction === "mute") {
+        await muteParticipant(participantId);
+    }
+    if (button.dataset.participantAction === "kick") {
+        await kickParticipant(participantId);
+    }
+});
+
+liveRoomsList.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-room-action='join']");
+    if (!button) {
+        return;
+    }
+
+    const roomName = button.dataset.roomName;
+    const privateRoom = button.dataset.privateRoom === "true";
+    let password = "";
+    if (privateRoom) {
+        password = window.prompt("Digite a senha da sala privada:") || "";
+        if (!password.trim()) {
+            return;
+        }
+    }
+
+    await joinRoomByName(roomName, { password: password.trim() });
 });
 
 recordButton.addEventListener("click", async () => {
@@ -149,6 +241,9 @@ recordButton.addEventListener("click", async () => {
     await startRecording();
 });
 
+streamQualitySelect.addEventListener("change", requestStreamQuality);
+fullscreenButton.addEventListener("click", toggleTrainingFullscreen);
+document.addEventListener("fullscreenchange", updateFullscreenButton);
 leaveButton.addEventListener("click", leaveRoom);
 refreshUsersButton.addEventListener("click", loadUsers);
 window.addEventListener("beforeunload", () => {
@@ -164,6 +259,11 @@ userForm.addEventListener("submit", async (event) => {
 
 uploadForm.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (!currentUserCanHost()) {
+        showUploadMessage("Apenas mestre ou administrador pode enviar arquivos.", true);
+        return;
+    }
+
     const formData = new FormData(uploadForm);
     const file = formData.get("file");
 
@@ -175,8 +275,10 @@ uploadForm.addEventListener("submit", async (event) => {
     showUploadMessage("Enviando arquivo...", false);
 
     try {
-        const lessonTitle = lessonTitleInput.value.trim() || "Aula gravada";
-        const response = await apiFetch(`/api/upload?recording=true&lessonTitle=${encodeURIComponent(lessonTitle)}`, {
+        const lessonTitle = lessonTitleInput.value.trim() || lessonSelectUpload.value.trim() || "Aula gravada";
+        const isVideo = isVideoFile(file.name, file.type);
+        const uploadType = isVideo ? "recording=true" : "material=true";
+        const response = await apiFetch(`/api/upload?${uploadType}&lessonTitle=${encodeURIComponent(lessonTitle)}`, {
             method: "POST",
             body: formData
         });
@@ -188,9 +290,54 @@ uploadForm.addEventListener("submit", async (event) => {
 
         uploadForm.reset();
         showUploadMessage("Arquivo enviado com sucesso.", false);
-        await loadFiles();
+        if (isVideo) {
+            await loadLessons();
+            await loadFiles();
+        } else {
+            await refreshUploadedMaterials(lessonTitle);
+        }
     } catch (error) {
         showUploadMessage(error.message, true);
+    }
+});
+
+liveUploadForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!session || !currentUserCanHost()) {
+        showLiveUploadMessage("Entre em uma aula como host para enviar materiais.", true);
+        return;
+    }
+
+    const formData = new FormData(liveUploadForm);
+    const file = formData.get("file");
+    if (!file || !file.name) {
+        showLiveUploadMessage("Selecione um arquivo para enviar.", true);
+        return;
+    }
+
+    if (isVideoFile(file.name, file.type)) {
+        showLiveUploadMessage("Use materiais como PDF, imagens ou documentos. Videos ficam em aulas gravadas.", true);
+        return;
+    }
+
+    showLiveUploadMessage("Enviando material...", false);
+
+    try {
+        const response = await apiFetch(`/api/upload?material=true&lessonTitle=${encodeURIComponent(session.room)}`, {
+            method: "POST",
+            body: formData
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || "Falha ao enviar material");
+        }
+
+        liveUploadForm.reset();
+        showLiveUploadMessage("Material enviado.", false);
+        await refreshUploadedMaterials(session.room);
+    } catch (error) {
+        showLiveUploadMessage(error.message, true);
     }
 });
 
@@ -246,20 +393,20 @@ async function apiFetch(url, options = {}) {
 function applyAuthUi() {
     const user = auth?.user;
     body.dataset.accountRole = user?.role || "";
+    body.classList.toggle("is-authenticated", Boolean(user));
     
-    // Controlar visibilidade dos painéis
+    // Controlar visibilidade dos paineis
     authPanel.hidden = Boolean(user);
-    dashboardPanel.hidden = !user;
-    livePanel.hidden = true;
-    managementPanel.hidden = !user || user.role === "aluno";
+    setLiveMode(Boolean(session));
     
     logoutButton.hidden = !user;
-    userStatus.textContent = user ? `${user.name} - ${roleLabel(user.role)}` : "Não autenticado";
+    userStatus.textContent = user ? `${user.name} - ${roleLabel(user.role)}` : "Nao autenticado";
     connectionStatus.textContent = user ? "autenticado" : "offline";
 
     const canHost = user && user.role !== "aluno";
     body.dataset.role = canHost ? "host" : "student";
     localRoleLabel.textContent = canHost ? "Host local" : "Aluno";
+    requestScreenButton.hidden = true;
     if (user) {
         localNameLabel.textContent = user.name;
     }
@@ -270,8 +417,8 @@ function applyAuthUi() {
         newRoleInput.value = "aluno";
     }
     
-    // Se logado, carregar dados do dashboard
-    if (user) {
+    // Se logado fora da aula ao vivo, carregar dados do dashboard
+    if (user && !session) {
         loadRooms();
         loadLessons();
         loadFiles();
@@ -279,18 +426,66 @@ function applyAuthUi() {
     }
 }
 
+function setLiveMode(isLive) {
+    body.classList.toggle("is-live", isLive);
+    dashboardPanel.hidden = isLive || !auth?.user;
+    livePanel.hidden = !isLive;
+    managementPanel.hidden = isLive || !auth?.user || auth.user.role === "aluno";
+}
+
+function updateRoomPrivacyUi() {
+    const privateRoom = roomVisibilityInput.value === "private";
+    roomPasswordGroup.hidden = !privateRoom;
+    roomPasswordInput.required = privateRoom;
+    if (!privateRoom) {
+        roomPasswordInput.value = "";
+    }
+}
+
+async function toggleTrainingFullscreen() {
+    if (!document.fullscreenEnabled || !localVideo.requestFullscreen) {
+        alert("Tela cheia nao esta disponivel neste navegador.");
+        return;
+    }
+
+    try {
+        if (document.fullscreenElement) {
+            await document.exitFullscreen();
+        } else {
+            await localVideo.requestFullscreen();
+        }
+    } catch (error) {
+        alert("Nao foi possivel alternar para tela cheia.");
+    }
+}
+
+function updateFullscreenButton() {
+    const isFullscreen = document.fullscreenElement === localVideo;
+    fullscreenButton.textContent = isFullscreen ? "Sair da tela cheia" : "Tela cheia";
+}
+
 function roleLabel(role) {
     return {
         mestre: "Mestre",
         administrador: "Administrador",
-        aluno: "Aluno"
+        aluno: "Aluno",
+        host: "Administrador",
+        student: "Aluno"
     }[role] || role;
 }
 
-// Funções do Dashboard
+function currentUserCanHost() {
+    return auth?.user && auth.user.role !== "aluno";
+}
+
+function isPresentationOwner() {
+    return session && presentationOwnerId === session.id;
+}
+
+// Funcoes do Dashboard
 async function loadRooms() {
     if (!auth?.user) {
-        liveRoomsList.innerHTML = "<div class='empty-state'>Faça login para ver as salas.</div>";
+        liveRoomsList.innerHTML = "<div class='empty-state'>Faca login para ver as salas.</div>";
         return;
     }
     
@@ -299,12 +494,12 @@ async function loadRooms() {
     try {
         const response = await apiFetch("/api/rooms");
         if (!response.ok) {
-            throw new Error("Não foi possível carregar as salas.");
+            throw new Error("Nao foi possivel carregar as salas.");
         }
         const rooms = await response.json();
         renderRooms(rooms);
     } catch (error) {
-        liveRoomsList.innerHTML = "<div class='empty-state'>Não foi possível carregar as salas.</div>";
+        liveRoomsList.innerHTML = "<div class='empty-state'>Nao foi possivel carregar as salas.</div>";
     }
 }
 
@@ -315,16 +510,19 @@ function renderRooms(rooms) {
     }
     
     liveRoomsList.innerHTML = rooms.map(room => {
-        const canJoin = auth?.user && auth.user.role !== "aluno";
+        const canJoin = Boolean(auth?.user);
+        const privateRoom = Boolean(room.privateRoom);
         return `
             <article class="room-card">
                 <div class="room-info">
                     <h3>${escapeHtml(room.name)}</h3>
-                    <span class="room-participants">${room.participants} participante(s) online</span>
+                    <span class="room-participants">${room.participants} participante(s) online - ${privateRoom ? "Privada" : "Publica"}</span>
                 </div>
                 <button class="primary-button ${canJoin ? '' : 'disabled'}" 
                         ${canJoin ? '' : 'disabled'} 
-                        onclick="joinRoomByName('${escapeHtml(room.name)}')">
+                        data-room-action="join"
+                        data-room-name="${escapeHtml(room.name)}"
+                        data-private-room="${privateRoom}">
                     Entrar
                 </button>
             </article>
@@ -332,9 +530,9 @@ function renderRooms(rooms) {
     }).join("");
 }
 
-async function joinRoomByName(roomName) {
+async function joinRoomByName(roomName, options = {}) {
     if (!auth?.user) {
-        return;
+        return false;
     }
     if (session) {
         await leaveRoom();
@@ -347,33 +545,61 @@ async function joinRoomByName(roomName) {
     const response = await apiFetch("/api/session/join", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ room: roomName })
+        body: JSON.stringify({
+            room: roomName,
+            privateRoom: options.privateRoom ? "true" : "false",
+            password: options.password || ""
+        })
     });
 
     if (!response.ok) {
-        alert("Não foi possível entrar na sala.");
+        const error = await response.json().catch(() => ({}));
+        alert(error.error || "Nao foi possivel entrar na sala.");
         connectionStatus.textContent = "offline";
-        return;
+        return false;
     }
 
     const data = await response.json();
-    session = { id: data.id, room: roomName };
-    roomStatus.textContent = `Sala: ${roomName}`;
-    stageRoomName.textContent = roomName;
+    session = { id: data.id, room: data.room || roomName };
+    participants.clear();
+    const currentParticipant = {
+        id: data.id,
+        name: auth.user.name,
+        role,
+        accountRole: auth.user.role
+    };
+    participants.set(currentParticipant.id, currentParticipant);
+    for (const peer of data.peers) {
+        participants.set(peer.id, peer);
+    }
+    const currentOwner = firstPresentationCandidate(data.peers);
+    presentationOwnerId = currentOwner?.id || (currentUserCanHost() ? session.id : "");
+    roomStatus.textContent = `Sala: ${session.room}`;
+    stageRoomName.textContent = session.room;
     connectionStatus.textContent = "online";
 
     // Mostrar painel ao vivo
-    dashboardPanel.hidden = true;
-    livePanel.hidden = false;
+    setLiveMode(true);
+    await loadLiveMaterials({ force: true });
+    startLiveMaterialsRefresh();
 
     // Conectar peers existentes
     for (const peer of data.peers) {
-        createPeerConnection(peer.id, peer.name, peer.role, true);
+        createPeerConnection(peer, isPresentationOwner());
     }
 
     // Iniciar polling
+    updateParticipants();
+    updatePresentationUi();
     startPolling();
-    publishActiveStream();
+    if (!isPresentationOwner()) {
+        await requestStreamQuality();
+    }
+    if (isPresentationOwner()) {
+        announcePresentationOwner();
+        publishActiveStream();
+    }
+    return true;
 }
 
 async function leaveRoom() {
@@ -386,6 +612,10 @@ async function leaveRoom() {
     }
 
     pollStopped = true;
+    stopLiveMaterialsRefresh();
+    if (document.fullscreenElement === localVideo) {
+        await document.exitFullscreen().catch(() => {});
+    }
     await apiFetch("/api/session/leave", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -395,13 +625,16 @@ async function leaveRoom() {
     peers.forEach((entry) => entry.connection.close());
     peers.clear();
     participants.clear();
+    presentationOwnerId = "";
+    liveMaterialsSignature = "";
+    liveMaterialsList.innerHTML = "";
     remoteGrid.innerHTML = "";
     updateParticipants();
+    updatePresentationUi();
     session = null;
     
     // Voltar ao dashboard
-    livePanel.hidden = true;
-    dashboardPanel.hidden = false;
+    setLiveMode(false);
     connectionStatus.textContent = "autenticado";
     roomStatus.textContent = "Plataforma de treinamentos";
     
@@ -416,9 +649,10 @@ async function startCamera() {
 
     try {
         localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        localVideo.srcObject = localStream;
-        muted = false;
-        muteButton.textContent = "Mic";
+        if (isPresentationOwner()) {
+            localVideo.srcObject = localStream;
+        }
+        setLocalMuted(false);
         cameraButton.textContent = "Desligar camera";
         publishActiveStream();
         return localStream;
@@ -426,6 +660,49 @@ async function startCamera() {
         alert("Nao foi possivel acessar a webcam. Verifique as permissoes do navegador.");
         return null;
     }
+}
+
+async function startMicrophone() {
+    try {
+        const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        const audioTrack = audioStream.getAudioTracks()[0];
+        if (!audioTrack) {
+            throw new Error("Microfone indisponivel");
+        }
+
+        if (!localStream) {
+            localStream = new MediaStream([audioTrack]);
+        } else if (!hasLocalAudio()) {
+            localStream.addTrack(audioTrack);
+        }
+
+        setLocalMuted(false);
+        publishActiveStream();
+    } catch (error) {
+        alert("Nao foi possivel acessar o microfone. Verifique as permissoes do navegador.");
+    }
+}
+
+function hasLocalAudio() {
+    return Boolean(localStream?.getAudioTracks().length);
+}
+
+function setLocalMuted(shouldMute) {
+    muted = shouldMute;
+    localStream?.getAudioTracks().forEach((track) => {
+        track.enabled = !muted;
+    });
+    muteButton.textContent = muted ? "Desmutar" : "Mutar";
+    const self = session ? participants.get(session.id) : null;
+    if (self) {
+        self.muted = muted;
+        updateParticipants();
+    }
+}
+
+function startPolling() {
+    pollStopped = false;
+    pollSignals();
 }
 
 async function pollSignals() {
@@ -453,10 +730,26 @@ async function handleSignal(message) {
         const peer = JSON.parse(message.payload || "{}");
         participants.set(peer.id, peer);
         updateParticipants();
+        if (!presentationOwnerId && canParticipantPresent(peer)) {
+            presentationOwnerId = peer.id;
+            updatePresentationUi();
+        }
+        if (isPresentationOwner()) {
+            createPeerConnection(peer, true);
+            announcePresentationOwner(peer.id);
+        }
         return;
     }
 
     if (message.type === "peer-left") {
+        if (message.from === presentationOwnerId) {
+            presentationOwnerId = nextPresentationOwnerId(message.from);
+            updatePresentationUi();
+            if (isPresentationOwner()) {
+                announcePresentationOwner();
+                publishActiveStream();
+            }
+        }
         removePeer(message.from);
         return;
     }
@@ -467,6 +760,48 @@ async function handleSignal(message) {
 
     if (!entry) {
         entry = createPeerConnection(peer, false);
+    }
+
+    if (message.type === "presentation-owner") {
+        presentationOwnerId = payload?.ownerId || "";
+        updatePresentationUi();
+        if (isPresentationOwner()) {
+            publishActiveStream();
+        } else {
+            renderMainPresentation();
+            await requestStreamQuality();
+        }
+        return;
+    }
+
+    if (message.type === "presentation-request") {
+        await handlePresentationRequest(message.from, payload);
+        return;
+    }
+
+    if (message.type === "quality-request") {
+        if (isPresentationOwner()) {
+            await applyPeerQuality(message.from, payload?.quality);
+        }
+        return;
+    }
+
+    if (message.type === "materials-updated") {
+        if (!payload?.lessonTitle || payload.lessonTitle === session?.room) {
+            await loadLiveMaterials({ force: true });
+        }
+        return;
+    }
+
+    if (message.type === "force-mute") {
+        setLocalMuted(true);
+        return;
+    }
+
+    if (message.type === "kick") {
+        alert("Voce foi removido da sala pelo moderador.");
+        await leaveRoom();
+        return;
     }
 
     if (message.type === "offer") {
@@ -487,16 +822,17 @@ async function handleSignal(message) {
 
 function createPeerConnection(peer, shouldOffer) {
     const connection = new RTCPeerConnection(rtcConfig);
-    const entry = { connection, peer, video: createRemoteTile(peer) };
+    const entry = { connection, peer, video: createRemoteTile(peer), stream: null, quality: "auto" };
     peers.set(peer.id, entry);
 
-    if (shouldOffer) {
+    if (shouldOffer && isPresentationOwner()) {
         connection.createDataChannel("presence");
     }
 
-    const activeStream = getActivePresentationStream();
-    if (activeStream) {
-        activeStream.getTracks().forEach((track) => connection.addTrack(track, activeStream));
+    const outboundStream = getOutboundStream();
+    if (outboundStream) {
+        outboundStream.getTracks().forEach((track) => connection.addTrack(track, outboundStream));
+        applyPeerQuality(peer.id).catch(() => {});
     }
 
     connection.addEventListener("icecandidate", (event) => {
@@ -506,7 +842,11 @@ function createPeerConnection(peer, shouldOffer) {
     });
 
     connection.addEventListener("track", (event) => {
-        entry.video.srcObject = event.streams[0];
+        entry.stream = event.streams[0];
+        entry.video.srcObject = entry.stream;
+        if (peer.id === presentationOwnerId && !isPresentationOwner()) {
+            localVideo.srcObject = entry.stream;
+        }
     });
 
     connection.addEventListener("connectionstatechange", () => {
@@ -548,7 +888,7 @@ function createRemoteTile(peer) {
         <video autoplay playsinline></video>
         <div class="remote-label">
             <strong>${escapeHtml(peer.name)}</strong>
-            <span>${peer.role === "host" ? "Host" : "Aluno"}</span>
+            <span>${roleLabel(peer.accountRole || peer.role)}</span>
         </div>
     `;
     remoteGrid.appendChild(tile);
@@ -593,11 +933,16 @@ function replaceTracks(stream) {
         if (stream) {
             stream.getTracks().forEach((track) => entry.connection.addTrack(track, stream));
         }
+        applyPeerQuality(entry.peer.id).catch(() => {});
     });
 }
 
 function publishActiveStream() {
-    replaceTracks(getActivePresentationStream());
+    const outboundStream = getOutboundStream();
+    if (isPresentationOwner()) {
+        localVideo.srcObject = getActivePresentationStream();
+    }
+    replaceTracks(outboundStream);
     peers.forEach((entry) => {
         if (entry.connection.signalingState === "stable") {
             createOffer(entry.peer.id);
@@ -605,11 +950,72 @@ function publishActiveStream() {
     });
 }
 
+function getOutboundStream() {
+    const tracks = [];
+    if (isPresentationOwner()) {
+        const presentationStream = getActivePresentationStream();
+        if (presentationStream) {
+            tracks.push(...presentationStream.getTracks());
+        }
+    } else if (localStream) {
+        tracks.push(...localStream.getAudioTracks());
+    }
+    return tracks.length ? new MediaStream(tracks) : null;
+}
+
 function getActivePresentationStream() {
     if (screenStream) {
         return buildPresentationStream(screenStream);
     }
     return localStream;
+}
+
+function normalizeStreamQuality(quality) {
+    return STREAM_QUALITY_PRESETS[quality] ? quality : "auto";
+}
+
+async function requestStreamQuality() {
+    if (!session || isPresentationOwner() || !presentationOwnerId) {
+        return;
+    }
+
+    await sendSignal(presentationOwnerId, "quality-request", {
+        quality: normalizeStreamQuality(streamQualitySelect.value)
+    });
+}
+
+async function applyPeerQuality(peerId, quality) {
+    const entry = peers.get(peerId);
+    if (!entry) {
+        return;
+    }
+
+    if (quality) {
+        entry.quality = normalizeStreamQuality(quality);
+    }
+
+    const preset = STREAM_QUALITY_PRESETS[entry.quality || "auto"];
+    const videoSender = entry.connection.getSenders().find((sender) => sender.track?.kind === "video");
+    if (!videoSender) {
+        return;
+    }
+
+    const parameters = videoSender.getParameters();
+    parameters.encodings = parameters.encodings?.length ? parameters.encodings : [{}];
+    const encoding = parameters.encodings[0];
+
+    if (preset.targetHeight) {
+        const sourceHeight = videoSender.track.getSettings().height || preset.targetHeight;
+        encoding.scaleResolutionDownBy = Math.max(1, sourceHeight / preset.targetHeight);
+        encoding.maxBitrate = preset.maxBitrate;
+        encoding.maxFramerate = 30;
+    } else {
+        delete encoding.scaleResolutionDownBy;
+        delete encoding.maxBitrate;
+        delete encoding.maxFramerate;
+    }
+
+    await videoSender.setParameters(parameters).catch(() => {});
 }
 
 function buildPresentationStream(videoSource) {
@@ -640,7 +1046,9 @@ function stopScreenShare() {
     stopStream(screenStream);
     screenStream = null;
     shareButton.textContent = "Espelhar tela";
-    localVideo.srcObject = localStream;
+    if (isPresentationOwner()) {
+        localVideo.srcObject = localStream;
+    }
     publishActiveStream();
 }
 
@@ -661,6 +1069,7 @@ async function startRecording() {
     }
 
     recordedChunks = [];
+    activeRecordingLessonTitle = session?.room || stageRoomName.textContent.trim() || "Aula gravada";
     const recordingFormat = getSupportedRecordingFormat();
     mediaRecorder = new MediaRecorder(
         streamToRecord,
@@ -692,12 +1101,13 @@ async function saveRecording() {
     const recordingFormat = getRecordingFormatFromMime(recordedChunks[0].type || mediaRecorder?.mimeType || "");
     const blob = new Blob(recordedChunks, { type: recordingFormat.mimeType });
     const fileName = `aula-${new Date().toISOString().replaceAll(":", "-").slice(0, 19)}.${recordingFormat.extension}`;
+    const lessonTitle = activeRecordingLessonTitle || session?.room || "Aula gravada";
     const formData = new FormData();
     formData.append("file", blob, fileName);
     showUploadMessage("Salvando gravacao da aula...", false);
 
     try {
-        const response = await apiFetch("/api/upload", {
+        const response = await apiFetch(`/api/upload?recording=true&lessonTitle=${encodeURIComponent(lessonTitle)}`, {
             method: "POST",
             body: formData
         });
@@ -707,6 +1117,7 @@ async function saveRecording() {
         }
 
         showUploadMessage("Gravacao salva na lista de aulas.", false);
+        await loadLessons();
         await loadFiles();
     } catch (error) {
         showUploadMessage(error.message, true);
@@ -718,6 +1129,7 @@ async function saveRecording() {
         URL.revokeObjectURL(url);
     } finally {
         recordedChunks = [];
+        activeRecordingLessonTitle = "";
         mediaRecorder = null;
     }
 }
@@ -750,8 +1162,159 @@ function stopStream(stream) {
 }
 
 function updateParticipants() {
-    const total = participants.size + (session ? 1 : 0);
-    participantCount.textContent = `${total} online`;
+    const sorted = [...participants.values()].sort(compareParticipants);
+    participantCount.textContent = `${sorted.length} online`;
+    participantList.innerHTML = sorted.map((participant) => {
+        const isOwner = participant.id === presentationOwnerId;
+        const canModerate = canModerateParticipant(participant);
+        return `
+            <div class="participant-row ${isOwner ? "presenting" : ""}">
+                <span>
+                    <strong>${escapeHtml(participant.name)}</strong>
+                    <small>${roleLabel(participant.accountRole || participant.role)}${participant.muted ? " - mutado" : ""}</small>
+                </span>
+                <div class="participant-actions">
+                    ${isOwner ? "<em>Tela principal</em>" : ""}
+                    ${canModerate ? `
+                        <button type="button" class="secondary-button" data-participant-action="mute" data-participant-id="${escapeHtml(participant.id)}">Mutar</button>
+                        <button type="button" class="secondary-button danger-button" data-participant-action="kick" data-participant-id="${escapeHtml(participant.id)}">Expulsar</button>
+                    ` : ""}
+                </div>
+            </div>
+        `;
+    }).join("");
+}
+
+function canModerateParticipant(participant) {
+    return session
+        && currentUserCanHost()
+        && participant.id !== session.id
+        && rolePriority(auth.user.role) <= rolePriority(participant.accountRole || participant.role);
+}
+
+async function muteParticipant(participantId) {
+    if (!canModerateParticipant(participants.get(participantId))) {
+        return;
+    }
+    await sendSignal(participantId, "force-mute", {});
+}
+
+async function kickParticipant(participantId) {
+    const participant = participants.get(participantId);
+    if (!canModerateParticipant(participant)) {
+        return;
+    }
+    const confirmed = window.confirm(`Expulsar ${participant.name} da sala?`);
+    if (!confirmed) {
+        return;
+    }
+    await sendSignal(participantId, "kick", {});
+}
+
+function compareParticipants(a, b) {
+    const roleDiff = rolePriority(a.accountRole || a.role) - rolePriority(b.accountRole || b.role);
+    if (roleDiff !== 0) {
+        return roleDiff;
+    }
+    return a.name.localeCompare(b.name, "pt-BR");
+}
+
+function rolePriority(role) {
+    return {
+        mestre: 0,
+        administrador: 1,
+        host: 1,
+        aluno: 2,
+        student: 2
+    }[role] ?? 3;
+}
+
+function canParticipantPresent(participant) {
+    const role = participant?.accountRole || participant?.role;
+    return role === "mestre" || role === "administrador" || role === "host";
+}
+
+function firstPresentationCandidate(peers) {
+    return [...peers].sort(compareParticipants).find(canParticipantPresent);
+}
+
+function nextPresentationOwnerId(leavingId = "") {
+    const candidate = [...participants.values()]
+        .filter((participant) => participant.id !== leavingId)
+        .sort(compareParticipants)
+        .find(canParticipantPresent);
+    return candidate?.id || "";
+}
+
+function updatePresentationUi() {
+    const owner = participants.get(presentationOwnerId);
+    localRoleLabel.textContent = owner ? "Tela principal" : "Tela principal";
+    localNameLabel.textContent = owner ? owner.name : "Aguardando apresentador";
+    requestScreenButton.hidden = !session || !currentUserCanHost() || isPresentationOwner();
+    shareButton.disabled = Boolean(session && currentUserCanHost() && !isPresentationOwner());
+    cameraButton.disabled = Boolean(session && currentUserCanHost() && !isPresentationOwner());
+    streamQualityControl.hidden = !session || isPresentationOwner();
+    streamQualitySelect.disabled = !presentationOwnerId;
+    updateParticipants();
+    renderMainPresentation();
+}
+
+function renderMainPresentation() {
+    if (!session) {
+        localVideo.srcObject = null;
+        return;
+    }
+    if (isPresentationOwner()) {
+        localVideo.srcObject = getActivePresentationStream();
+        return;
+    }
+    const ownerEntry = peers.get(presentationOwnerId);
+    localVideo.srcObject = ownerEntry?.stream || null;
+}
+
+async function requestScreenControl() {
+    if (!session || !currentUserCanHost()) {
+        return;
+    }
+    if (!presentationOwnerId || presentationOwnerId === session.id) {
+        presentationOwnerId = session.id;
+        announcePresentationOwner();
+        updatePresentationUi();
+        publishActiveStream();
+        return;
+    }
+    const owner = participants.get(presentationOwnerId);
+    await sendSignal(presentationOwnerId, "presentation-request", {
+        requesterId: session.id,
+        requesterName: auth.user.name,
+        requesterRole: auth.user.role
+    });
+    connectionStatus.textContent = owner ? `pedido enviado para ${owner.name}` : "pedido enviado";
+}
+
+async function handlePresentationRequest(from, payload) {
+    if (!isPresentationOwner()) {
+        return;
+    }
+    const requester = participants.get(payload?.requesterId || from) || participants.get(from);
+    if (!requester || !canParticipantPresent(requester)) {
+        return;
+    }
+    const accepted = window.confirm(`${requester.name} pediu para assumir a tela principal. Permitir troca?`);
+    if (!accepted) {
+        return;
+    }
+    presentationOwnerId = requester.id;
+    announcePresentationOwner();
+    updatePresentationUi();
+    publishActiveStream();
+}
+
+function announcePresentationOwner(target = "") {
+    if (!session || !presentationOwnerId) {
+        return;
+    }
+    sendSignal(target, "presentation-owner", { ownerId: presentationOwnerId });
 }
 
 function encodePayload(data) {
@@ -774,12 +1337,22 @@ function showUploadMessage(message, isError) {
     uploadMessage.classList.toggle("error", isError);
 }
 
+function showLiveUploadMessage(message, isError) {
+    liveUploadMessage.textContent = message;
+    liveUploadMessage.classList.toggle("error", isError);
+}
+
+function isVideoFile(name, type) {
+    return (type || "").startsWith("video/") || /\.(mp4|webm|mov|mkv|avi)$/i.test(name || "");
+}
+
 async function loadLessons() {
     if (!auth?.user) {
-        lessonList.innerHTML = "<div class='empty-state'>Faça login para ver as aulas.</div>";
+        recordingsList.innerHTML = "<div class='empty-state'>Faça login para ver as aulas.</div>";
+        materialsList.innerHTML = "<div class='empty-state'>Faça login para ver os materiais.</div>";
         return;
     }
-    lessonList.innerHTML = "<div class='empty-state'>Carregando aulas gravadas...</div>";
+    recordingsList.innerHTML = "<div class='empty-state'>Carregando aulas gravadas...</div>";
 
     try {
         const response = await apiFetch("/api/lessons");
@@ -787,28 +1360,77 @@ async function loadLessons() {
             throw new Error("Não foi possível carregar as aulas.");
         }
         const lessons = await response.json();
-        renderLessons(lessons);
-        
-        // Atualizar select de vinculação
-        updateLessonSelect(lessons);
+        const rooms = await loadRoomLessonOptions();
+        const lessonOptions = mergeLessonOptions(lessons, rooms);
+        updateLessonSelects(lessonOptions);
+
+        if (lessonOptions.length) {
+            const selectedTitle = lessonSelectRecordings.value || lessonOptions[0].title;
+            lessonSelectRecordings.value = selectedTitle;
+            await loadLessonFiles(selectedTitle);
+        } else {
+            renderLessons([]);
+        }
+        lessonSelectMaterials.value = ALL_MATERIALS_VALUE;
+        await loadAllMaterials();
     } catch (error) {
-        lessonList.innerHTML = "<div class='empty-state'>Não foi possível carregar as aulas.</div>";
+        recordingsList.innerHTML = "<div class='empty-state'>Não foi possível carregar as aulas.</div>";
+        materialsList.innerHTML = "<div class='empty-state'>Nao foi possivel carregar os materiais.</div>";
     }
 }
 
-function updateLessonSelect(lessons) {
-    lessonSelectInput.innerHTML = '<option value="">Nenhuma - apenas material avulso</option>';
-    lessons.forEach(lesson => {
-        const option = document.createElement("option");
-        option.value = lesson.title;
-        option.textContent = lesson.title;
-        lessonSelectInput.appendChild(option);
+async function loadRoomLessonOptions() {
+    try {
+        const response = await apiFetch("/api/rooms");
+        if (!response.ok) {
+            return [];
+        }
+        const rooms = await response.json();
+        return rooms.map((room) => ({ title: room.name, live: true }));
+    } catch (error) {
+        return [];
+    }
+}
+
+function mergeLessonOptions(lessons, rooms) {
+    const options = [];
+    const seen = new Set();
+
+    [...rooms, ...lessons].forEach((item) => {
+        const title = (item.title || "").trim();
+        if (!title || seen.has(title)) {
+            return;
+        }
+        seen.add(title);
+        options.push(item);
+    });
+
+    return options;
+}
+
+function updateLessonSelects(lessons) {
+    const selects = [lessonSelectUpload, lessonSelectRecordings, lessonSelectMaterials];
+    selects.forEach((select) => {
+        const isMaterialsSelect = select === lessonSelectMaterials;
+        const firstLabel = isMaterialsSelect
+            ? "Todos os materiais"
+            : select === lessonSelectUpload
+                ? "-- selecione ou crie novo --"
+                : "-- selecione uma aula --";
+        const firstValue = isMaterialsSelect ? ALL_MATERIALS_VALUE : "";
+        select.innerHTML = `<option value="${firstValue}">${firstLabel}</option>`;
+        lessons.forEach((lesson) => {
+            const option = document.createElement("option");
+            option.value = lesson.title;
+            option.textContent = lesson.live ? `${lesson.title} (ao vivo)` : lesson.title;
+            select.appendChild(option);
+        });
     });
 }
 
 async function loadFiles() {
     if (!auth?.user) {
-        fileList.innerHTML = "<div class='empty-state'>Faça login para ver os materiais.</div>";
+        fileList.innerHTML = "<div class='empty-state'>Faca login para ver os materiais.</div>";
         return;
     }
     fileList.innerHTML = "<div class='empty-state'>Carregando materiais...</div>";
@@ -816,12 +1438,12 @@ async function loadFiles() {
     try {
         const response = await apiFetch("/api/files");
         if (!response.ok) {
-            throw new Error("Não foi possível carregar os materiais.");
+            throw new Error("Nao foi possivel carregar os materiais.");
         }
         const files = await response.json();
         renderFiles(files);
     } catch (error) {
-        fileList.innerHTML = "<div class='empty-state'>Não foi possível carregar os materiais.</div>";
+        fileList.innerHTML = "<div class='empty-state'>Nao foi possivel carregar os materiais.</div>";
     }
 }
 
@@ -850,11 +1472,11 @@ function renderFiles(files) {
 
 function renderLessons(lessons) {
     if (!lessons.length) {
-        lessonList.innerHTML = "<div class=\"empty-state\">Nenhuma aula gravada ainda.</div>";
+        recordingsList.innerHTML = "<div class=\"empty-state\">Nenhuma gravação encontrada para esta aula.</div>";
         return;
     }
 
-    lessonList.innerHTML = lessons.map((lesson, index) => {
+    recordingsList.innerHTML = lessons.map((lesson, index) => {
         const size = formatBytes(lesson.size);
         const date = new Date(lesson.modified).toLocaleString("pt-BR");
         const href = `/download?name=${encodeURIComponent(lesson.name)}&token=${encodeURIComponent(auth?.token || "")}`;
@@ -873,6 +1495,201 @@ function renderLessons(lessons) {
             </article>
         `;
     }).join("");
+}
+
+async function loadLessonFiles(title) {
+    if (!title) {
+        recordingsTitle.textContent = "Gravações";
+        recordingsList.innerHTML = "<div class='empty-state'>Selecione uma aula.</div>";
+        return;
+    }
+
+    recordingsTitle.textContent = title;
+    recordingsList.innerHTML = "<div class='empty-state'>Carregando gravações...</div>";
+
+    try {
+        const response = await apiFetch(`/api/lessons?title=${encodeURIComponent(title)}`);
+        if (!response.ok) {
+            throw new Error("Não foi possível carregar a aula.");
+        }
+        const lesson = await response.json();
+        const split = splitLessonFiles(lesson);
+        renderLessons(split.recordings);
+    } catch (error) {
+        recordingsList.innerHTML = "<div class='empty-state'>Não foi possível carregar a aula.</div>";
+    }
+}
+
+async function loadAllMaterials() {
+    if (!auth?.user) {
+        materialsList.innerHTML = "<div class='empty-state'>Faca login para ver os materiais.</div>";
+        return;
+    }
+
+    materialsList.innerHTML = "<div class='empty-state'>Carregando materiais...</div>";
+
+    try {
+        const response = await apiFetch("/api/materials");
+        if (!response.ok) {
+            throw new Error("Nao foi possivel carregar os materiais.");
+        }
+        const groupedMaterials = await response.json();
+        renderMaterials(flattenMaterialGroups(groupedMaterials), {
+            emptyMessage: "Nenhum material enviado ainda.",
+            showLessonTitle: true
+        });
+    } catch (error) {
+        materialsList.innerHTML = "<div class='empty-state'>Nao foi possivel carregar os materiais.</div>";
+    }
+}
+
+async function loadMaterialFiles(title) {
+    if (title === ALL_MATERIALS_VALUE) {
+        await loadAllMaterials();
+        return;
+    }
+
+    if (!title) {
+        materialsList.innerHTML = "<div class='empty-state'>Selecione uma aula.</div>";
+        return;
+    }
+
+    materialsList.innerHTML = "<div class='empty-state'>Carregando materiais...</div>";
+
+    try {
+        const response = await apiFetch(`/api/lessons?title=${encodeURIComponent(title)}`);
+        if (!response.ok) {
+            throw new Error("Não foi possível carregar os materiais.");
+        }
+        const lesson = await response.json();
+        renderMaterials(splitLessonFiles(lesson).materials);
+    } catch (error) {
+        materialsList.innerHTML = "<div class='empty-state'>Não foi possível carregar os materiais.</div>";
+    }
+}
+
+function startLiveMaterialsRefresh() {
+    stopLiveMaterialsRefresh();
+    liveMaterialsRefreshId = window.setInterval(() => {
+        loadLiveMaterials().catch(() => {});
+    }, 4000);
+}
+
+function stopLiveMaterialsRefresh() {
+    if (liveMaterialsRefreshId) {
+        window.clearInterval(liveMaterialsRefreshId);
+        liveMaterialsRefreshId = null;
+    }
+}
+
+async function loadLiveMaterials(options = {}) {
+    if (!session || !auth?.user) {
+        liveMaterialsList.innerHTML = "<div class='empty-state'>Entre na aula para ver os materiais.</div>";
+        return;
+    }
+
+    try {
+        const response = await apiFetch(`/api/lessons?title=${encodeURIComponent(session.room)}`);
+        if (!response.ok) {
+            throw new Error("Nao foi possivel carregar os materiais.");
+        }
+        const lesson = await response.json();
+        const materials = splitLessonFiles(lesson).materials;
+        renderLiveMaterials(materials, options);
+    } catch (error) {
+        if (options.force || !liveMaterialsList.innerHTML) {
+            liveMaterialsList.innerHTML = "<div class='empty-state'>Nao foi possivel carregar os materiais.</div>";
+        }
+    }
+}
+
+function renderLiveMaterials(materials, options = {}) {
+    const signature = materials
+        .map((material) => `${material.name}|${material.size}|${material.uploadedAt || material.modified}`)
+        .join(";");
+
+    if (!options.force && signature === liveMaterialsSignature) {
+        return;
+    }
+
+    liveMaterialsSignature = signature;
+    renderMaterialCards(liveMaterialsList, materials, {
+        emptyMessage: "Nenhum material enviado para esta aula ainda."
+    });
+}
+
+async function refreshUploadedMaterials(lessonTitle) {
+    if (session) {
+        if (lessonTitle === session.room) {
+            await loadLiveMaterials({ force: true });
+            await sendSignal("", "materials-updated", { lessonTitle });
+        }
+        return;
+    }
+
+    await loadLessons();
+    await loadFiles();
+}
+
+function flattenMaterialGroups(groups) {
+    return Object.entries(groups || {}).flatMap(([lessonTitle, materials]) => {
+        if (!Array.isArray(materials)) {
+            return [];
+        }
+        return materials.map((material) => ({
+            ...material,
+            lessonTitle: material.lessonTitle || lessonTitle
+        }));
+    });
+}
+
+function renderMaterials(materials, options = {}) {
+    renderMaterialCards(materialsList, materials, options);
+}
+
+function renderMaterialCards(container, materials, options = {}) {
+    if (!materials.length) {
+        const message = options.emptyMessage || "Nenhum material encontrado para esta aula.";
+        container.innerHTML = `<div class='empty-state'>${escapeHtml(message)}</div>`;
+        return;
+    }
+
+    container.innerHTML = materials.map((material) => {
+        const size = formatBytes(material.size);
+        const date = new Date(material.uploadedAt || material.modified).toLocaleString("pt-BR");
+        const href = `/download?name=${encodeURIComponent(material.name)}&token=${encodeURIComponent(auth?.token || "")}`;
+        const lesson = options.showLessonTitle && material.lessonTitle ? `${escapeHtml(material.lessonTitle)} - ` : "";
+
+        return `
+            <article class="file-card">
+                <div>
+                    <strong>${escapeHtml(material.name)}</strong>
+                    <span>${lesson}${size} - ${date}</span>
+                </div>
+                <a class="download-link" href="${href}">Baixar</a>
+            </article>
+        `;
+    }).join("");
+}
+
+function splitLessonFiles(lesson) {
+    const recordings = lesson.recordings || [];
+    const materials = lesson.materials || [];
+    const videoRecordings = recordings.filter((recording) => isVideoFile(recording.name, recording.type));
+    const materialRecordings = recordings
+        .filter((recording) => !isVideoFile(recording.name, recording.type))
+        .map((recording) => ({
+            lessonTitle: lesson.title,
+            name: recording.name,
+            size: recording.size,
+            uploadedAt: recording.modified,
+            type: recording.type
+        }));
+
+    return {
+        recordings: videoRecordings,
+        materials: [...materials, ...materialRecordings]
+    };
 }
 
 async function loadUsers() {
@@ -987,4 +1804,5 @@ function escapeHtml(value) {
         .replaceAll("'", "&#039;");
 }
 
+updateRoomPrivacyUi();
 initAuth();

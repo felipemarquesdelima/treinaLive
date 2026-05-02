@@ -25,17 +25,16 @@
             <div class="login-container">
                 <div class="login-header">
                     <h1>TreinaLive</h1>
-                    <p>Plataforma de treinamentos online</p>
                 </div>
 
                 <form id="loginForm" class="login-form">
                     <div class="form-group">
                         <label for="usernameInput">Usuário</label>
-                        <input id="usernameInput" type="text" value="mestre" maxlength="60" required>
+                        <input id="usernameInput" type="text" autocomplete="username" maxlength="60" required autofocus>
                     </div>
                     <div class="form-group">
                         <label for="passwordInput">Senha</label>
-                        <input id="passwordInput" type="password" value="mestre123" maxlength="60" required>
+                        <input id="passwordInput" type="password" autocomplete="current-password" maxlength="60" required>
                     </div>
                     <button class="primary-button" type="submit">Entrar</button>
                     <p id="authMessage" class="form-message" role="status"></p>
@@ -66,7 +65,16 @@
                     <h2>Biblioteca de aulas</h2>
                     <p>Aulas gravadas disponíveis para revisão</p>
                 </div>
-                <div id="lessonList" class="lessons-grid"></div>
+                <div style="margin-bottom: 20px;">
+                    <label for="lessonSelectRecordings">Selecione uma aula:</label>
+                    <select id="lessonSelectRecordings" style="padding: 8px; border-radius: 6px; border: 1px solid var(--line);">
+                        <option value="">-- Carregando aulas --</option>
+                    </select>
+                </div>
+                <div>
+                    <h3 id="recordingsTitle" style="margin-top: 20px; margin-bottom: 10px;">Gravações</h3>
+                    <div id="recordingsList" class="files-grid"></div>
+                </div>
             </div>
 
             <!-- TAB: MATERIAIS -->
@@ -94,9 +102,20 @@
                 </div>
                 <div class="live-actions">
                     <button id="cameraButton" class="primary-button host-control">Ligar câmera</button>
-                    <button id="muteButton" class="icon-button host-control" title="Ativar ou silenciar microfone">Mic</button>
+                    <button id="muteButton" class="icon-button" title="Ativar ou silenciar microfone">Mic</button>
                     <button id="shareButton" class="icon-button host-control" title="Espelhar a tela do computador">Espelhar tela</button>
+                    <button id="requestScreenButton" class="secondary-button host-control" title="Pedir a tela principal">Pedir tela</button>
                     <button id="recordButton" class="record-button host-control" title="Gravar a aula">Gravar aula</button>
+                    <label id="streamQualityControl" class="quality-control">
+                        <span>Resolucao</span>
+                        <select id="streamQualitySelect">
+                            <option value="auto">Auto</option>
+                            <option value="480p">480p</option>
+                            <option value="720p">720p</option>
+                            <option value="1080p">1080p</option>
+                        </select>
+                    </label>
+                    <button id="fullscreenButton" class="secondary-button" title="Alternar tela cheia">Tela cheia</button>
                     <button id="leaveButton" class="secondary-button">Sair da sala</button>
                 </div>
             </div>
@@ -116,9 +135,28 @@
                         <strong>Participantes</strong>
                         <span id="participantCount">0 online</span>
                     </div>
+                    <div id="participantList" class="participant-list" aria-label="Lista de participantes"></div>
                     <div id="remoteGrid" class="student-grid" aria-label="Webcams dos participantes"></div>
                 </aside>
             </div>
+
+            <section class="live-materials-panel" aria-label="Materiais da aula ao vivo">
+                <div class="section-header">
+                    <h2>Materiais da aula</h2>
+                    <p>Arquivos enviados pelo host ficam disponiveis aqui.</p>
+                </div>
+
+                <form id="liveUploadForm" class="upload-form live-upload-form host-control">
+                    <div class="form-group">
+                        <label for="liveFileInput">Enviar material para esta aula</label>
+                        <input id="liveFileInput" name="file" type="file" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip" required>
+                    </div>
+                    <button class="primary-button" type="submit">Enviar material</button>
+                    <p id="liveUploadMessage" class="form-message" role="status"></p>
+                </form>
+
+                <div id="liveMaterialsList" class="files-grid"></div>
+            </section>
         </section>
 
         <!-- PAINEL DE GESTÃO (só para mestres/admins) -->
@@ -136,6 +174,17 @@
                         <label for="newRoomName">Nome da sala</label>
                         <input id="newRoomName" type="text" placeholder="Ex: Treinamento Anestesia" maxlength="40" required>
                     </div>
+                    <div class="form-group">
+                        <label for="roomVisibilityInput">Tipo de sala</label>
+                        <select id="roomVisibilityInput">
+                            <option value="public">Publica</option>
+                            <option value="private">Privada</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="roomPasswordGroup" hidden>
+                        <label for="roomPasswordInput">Senha da sala</label>
+                        <input id="roomPasswordInput" type="password" maxlength="40" autocomplete="new-password">
+                    </div>
                     <button class="primary-button" type="submit">Criar sala</button>
                 </form>
             </article>
@@ -150,7 +199,13 @@
 
                 <form id="uploadForm" class="upload-form">
                     <div class="form-group">
-                        <label for="lessonTitleInput">Título da aula (opcional)</label>
+                        <label for="lessonSelectUpload">Selecione uma aula já criada:</label>
+                        <select id="lessonSelectUpload" style="padding: 8px; border-radius: 6px; border: 1px solid var(--line);">
+                            <option value="">-- Carregando aulas --</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="lessonTitleInput">Ou digite um novo nome de aula:</label>
                         <input id="lessonTitleInput" type="text" placeholder="Ex: Aula 1 - Treinamento" maxlength="60">
                     </div>
                     <div class="form-group">

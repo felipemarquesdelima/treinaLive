@@ -25,7 +25,7 @@ import java.util.UUID;
 import java.util.concurrent.Executors;
 
 public class App {
-    private static final int PORT = 8080;
+    private static final int PORT = configuredPort();
     private static final Path PUBLIC_DIR = Paths.get("public").toAbsolutePath().normalize();
     private static final Path UPLOAD_DIR = Paths.get("uploads").toAbsolutePath().normalize();
     private static final Path RECORDINGS_FILE = UPLOAD_DIR.resolve("recordings.tsv").toAbsolutePath().normalize();
@@ -207,7 +207,56 @@ public class App {
                 return;
             }
 
-            sendJson(exchange, 200, recordingsJson(loadRecordings()));
+            Map<String, String> query = parseQuery(exchange.getRequestURI().getRawQuery());
+            String title = query.getOrDefault("title", "").trim();
+
+            List<LessonRecording> recordings = loadRecordings();
+            List<Material> materials = loadMaterials();
+
+            // Se veio ?title=... -> retorna todos os arquivos relacionados àquela aula
+            if (!title.isBlank()) {
+                List<LessonRecording> recsFor = new ArrayList<>();
+                for (LessonRecording r : recordings) {
+                    if (r.title.equals(title)) {
+                        recsFor.add(r);
+                    }
+                }
+
+                List<Material> matsFor = new ArrayList<>();
+                for (Material m : materials) {
+                    if (m.lessonTitle.equals(title)) {
+                        matsFor.add(m);
+                    }
+                }
+
+                StringBuilder json = new StringBuilder();
+                json.append("{");
+                json.append("\"title\":\"").append(escapeJson(title)).append("\",");
+                json.append("\"recordings\":").append(recordingsJson(recsFor)).append(",");
+                json.append("\"materials\":").append(materialsListJson(matsFor));
+                json.append("}");
+                sendJson(exchange, 200, json.toString());
+                return;
+            }
+
+            // Sem title: retorna lista de títulos distintos (gravações + materiais)
+            LinkedHashMap<String, String> titles = new LinkedHashMap<>();
+            for (LessonRecording r : recordings) {
+                titles.put(r.title, r.title);
+            }
+            for (Material m : materials) {
+                titles.putIfAbsent(m.lessonTitle, m.lessonTitle);
+            }
+
+            StringBuilder json = new StringBuilder("[");
+            int idx = 0;
+            for (String t : titles.values()) {
+                if (idx > 0) json.append(',');
+                json.append("{\"title\":\"").append(escapeJson(t)).append("\"}");
+                idx++;
+            }
+            json.append("]");
+            sendJson(exchange, 200, json.toString());
         }
     }
 
@@ -224,7 +273,7 @@ public class App {
                 return;
             }
 
-            sendJson(exchange, 200, materialsJson(loadMaterials()));
+            sendJson(exchange, 200, materialsJson(loadDownloadableMaterials()));
         }
     }
 
@@ -261,7 +310,8 @@ public class App {
                 json.append("{")
                         .append("\"id\":\"").append(escapeJson(entry.getKey())).append("\",")
                         .append("\"name\":\"").append(escapeJson(entry.getKey())).append("\",")
-                        .append("\"participants\":").append(participantCount)
+                        .append("\"participants\":").append(participantCount).append(',')
+                        .append("\"privateRoom\":").append(room.privateRoom)
                         .append("}");
                 index++;
             }
@@ -284,19 +334,39 @@ public class App {
 
             Map<String, String> body = parseSimpleJson(readBody(exchange));
             String roomId = cleanToken(body.getOrDefault("room", "sala-principal"));
+            boolean privateRoom = "true".equalsIgnoreCase(body.getOrDefault("privateRoom", body.getOrDefault("private", "false")));
+            String roomPassword = body.getOrDefault("password", "").trim();
             String name = account.name;
             String role = canHost(account) ? "host" : "student";
+            String accountRole = account.role;
             String participantId = UUID.randomUUID().toString();
 
             Room room;
             List<Participant> peers;
             synchronized (ROOMS) {
-                room = ROOMS.computeIfAbsent(roomId, Room::new);
+                room = ROOMS.get(roomId);
+                if (room == null) {
+                    if (!canHost(account)) {
+                        sendJson(exchange, 403, "{\"error\":\"Apenas hosts podem criar salas\"}");
+                        return;
+                    }
+                    if (privateRoom && roomPassword.isBlank()) {
+                        sendJson(exchange, 400, "{\"error\":\"Informe a senha da sala privada\"}");
+                        return;
+                    }
+                    room = new Room(roomId, privateRoom, privateRoom ? roomPassword : "");
+                    ROOMS.put(roomId, room);
+                }
             }
 
             synchronized (room) {
+                if (room.privateRoom && !room.password.equals(roomPassword)) {
+                    sendJson(exchange, 403, "{\"error\":\"Senha da sala privada invalida\"}");
+                    return;
+                }
+
                 peers = new ArrayList<>(room.participants.values());
-                Participant participant = new Participant(participantId, name, role);
+                Participant participant = new Participant(participantId, name, role, accountRole);
                 room.participants.put(participantId, participant);
                 room.broadcast(new SignalMessage("peer-joined", participantId, "", participantJson(participant)), participantId);
                 room.notifyAll();
@@ -400,6 +470,17 @@ public class App {
                     sendJson(exchange, 404, "{\"error\":\"Remetente nao esta na sala\"}");
                     return;
                 }
+                if (isModerationSignal(type)) {
+                    Participant targetParticipant = room.participants.get(target);
+                    if (targetParticipant == null) {
+                        sendJson(exchange, 404, "{\"error\":\"Participante alvo nao encontrado\"}");
+                        return;
+                    }
+                    if (!canModerate(account, targetParticipant)) {
+                        sendJson(exchange, 403, "{\"error\":\"Sem permissao para moderar este participante\"}");
+                        return;
+                    }
+                }
 
                 SignalMessage message = new SignalMessage(type, from, target, payload);
                 if (target.isBlank()) {
@@ -478,7 +559,7 @@ public class App {
             if (Files.exists(UPLOAD_DIR)) {
                 try (var stream = Files.list(UPLOAD_DIR)) {
                     stream.filter(Files::isRegularFile)
-                            .filter(path -> !path.getFileName().toString().equals(RECORDINGS_FILE.getFileName().toString()))
+                            .filter(path -> !isMetadataFile(path.getFileName().toString()))
                             .sorted(Comparator.comparing(path -> path.toFile().lastModified(), Comparator.reverseOrder()))
                             .forEach(files::add);
                 }
@@ -657,6 +738,26 @@ public class App {
         return "mestre".equals(account.role) || "administrador".equals(account.role);
     }
 
+    private static boolean isModerationSignal(String type) {
+        return "force-mute".equals(type) || "kick".equals(type);
+    }
+
+    private static boolean canModerate(UserAccount moderator, Participant target) {
+        if (!canHost(moderator)) {
+            return false;
+        }
+        return rolePriority(moderator.role) <= rolePriority(target.accountRole);
+    }
+
+    private static int rolePriority(String role) {
+        return switch (role == null ? "" : role) {
+            case "mestre" -> 0;
+            case "administrador", "host" -> 1;
+            case "aluno", "student" -> 2;
+            default -> 3;
+        };
+    }
+
     private static boolean isManager(UserAccount account) {
         return canHost(account);
     }
@@ -788,6 +889,68 @@ public class App {
         return materials;
     }
 
+    private static List<Material> loadDownloadableMaterials() throws IOException {
+        Map<String, Material> byFileName = new LinkedHashMap<>();
+
+        for (Material material : loadMaterials()) {
+            byFileName.putIfAbsent(material.fileName, material);
+        }
+
+        for (LessonRecording recording : loadRecordings()) {
+            if (!isVideoFile(recording.fileName, recording.type)) {
+                byFileName.putIfAbsent(recording.fileName, new Material(
+                        recording.title,
+                        recording.fileName,
+                        recording.size,
+                        recording.modified,
+                        recording.type
+                ));
+            }
+        }
+
+        if (Files.exists(UPLOAD_DIR)) {
+            List<Path> files = new ArrayList<>();
+            try (var stream = Files.list(UPLOAD_DIR)) {
+                stream.filter(Files::isRegularFile).forEach(files::add);
+            }
+
+            for (Path file : files) {
+                String fileName = file.getFileName().toString();
+                String type = Files.probeContentType(file);
+                if (byFileName.containsKey(fileName) || isMetadataFile(fileName) || isVideoFile(fileName, type)) {
+                    continue;
+                }
+                byFileName.put(fileName, new Material(
+                        "Materiais gerais",
+                        fileName,
+                        Files.size(file),
+                        Instant.ofEpochMilli(file.toFile().lastModified()).toString(),
+                        type
+                ));
+            }
+        }
+
+        List<Material> materials = new ArrayList<>(byFileName.values());
+        materials.sort(Comparator.comparing((Material item) -> item.uploadedAt).reversed());
+        return materials;
+    }
+
+    private static boolean isMetadataFile(String fileName) {
+        return RECORDINGS_FILE.getFileName().toString().equals(fileName)
+                || MATERIALS_FILE.getFileName().toString().equals(fileName);
+    }
+
+    private static boolean isVideoFile(String fileName, String type) {
+        String normalizedType = type == null ? "" : type.toLowerCase(Locale.ROOT);
+        String normalizedName = fileName == null ? "" : fileName.toLowerCase(Locale.ROOT);
+        return normalizedType.startsWith("video/")
+                || normalizedName.endsWith(".mp4")
+                || normalizedName.endsWith(".webm")
+                || normalizedName.endsWith(".mov")
+                || normalizedName.endsWith(".mkv")
+                || normalizedName.endsWith(".avi");
+    }
+
     private static String materialsJson(List<Material> materials) {
         Map<String, List<Material>> byLesson = new LinkedHashMap<>();
         for (Material material : materials) {
@@ -818,6 +981,23 @@ public class App {
             lessonIndex++;
         }
         json.append("}");
+        return json.toString();
+    }
+
+    private static String materialsListJson(List<Material> materials) {
+        StringBuilder json = new StringBuilder("[");
+        for (int i = 0; i < materials.size(); i++) {
+            Material material = materials.get(i);
+            if (i > 0) json.append(',');
+            json.append('{')
+                    .append("\"lessonTitle\":\"").append(escapeJson(material.lessonTitle)).append("\",")
+                    .append("\"name\":\"").append(escapeJson(material.fileName)).append("\",")
+                    .append("\"size\":").append(material.size).append(',')
+                    .append("\"uploadedAt\":\"").append(escapeJson(material.uploadedAt)).append("\",")
+                    .append("\"type\":\"").append(escapeJson(material.type)).append("\"")
+                    .append('}');
+        }
+        json.append(']');
         return json.toString();
     }
 
@@ -910,7 +1090,8 @@ public class App {
         return "{"
                 + "\"id\":\"" + escapeJson(participant.id) + "\","
                 + "\"name\":\"" + escapeJson(participant.name) + "\","
-                + "\"role\":\"" + escapeJson(participant.role) + "\""
+                + "\"role\":\"" + escapeJson(participant.role) + "\","
+                + "\"accountRole\":\"" + escapeJson(participant.accountRole) + "\""
                 + "}";
     }
 
@@ -1110,6 +1291,18 @@ public class App {
         return URLDecoder.decode(value, StandardCharsets.UTF_8);
     }
 
+    private static int configuredPort() {
+        String value = System.getenv("PORT");
+        if (value == null || value.isBlank()) {
+            return 8080;
+        }
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException exception) {
+            return 8080;
+        }
+    }
+
     private static String contentType(Path file) throws IOException {
         String detected = Files.probeContentType(file);
         if (detected != null) {
@@ -1158,10 +1351,14 @@ public class App {
 
     private static class Room {
         private final String id;
+        private final boolean privateRoom;
+        private final String password;
         private final Map<String, Participant> participants = new LinkedHashMap<>();
 
-        private Room(String id) {
+        private Room(String id, boolean privateRoom, String password) {
             this.id = id;
+            this.privateRoom = privateRoom;
+            this.password = password;
         }
 
         private void sendTo(String participantId, SignalMessage message) {
@@ -1184,12 +1381,14 @@ public class App {
         private final String id;
         private final String name;
         private final String role;
+        private final String accountRole;
         private final List<SignalMessage> queue = new ArrayList<>();
 
-        private Participant(String id, String name, String role) {
+        private Participant(String id, String name, String role, String accountRole) {
             this.id = id;
             this.name = name.isBlank() ? "Participante" : name;
             this.role = role;
+            this.accountRole = accountRole;
         }
     }
 

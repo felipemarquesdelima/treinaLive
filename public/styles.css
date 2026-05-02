@@ -24,6 +24,17 @@ body {
     font-family: Arial, Helvetica, sans-serif;
 }
 
+body:not(.is-authenticated) .topbar {
+    display: none;
+}
+
+body:not(.is-authenticated) .app-shell {
+    display: grid;
+    min-height: 100vh;
+    margin: 0 auto;
+    place-items: center;
+}
+
 button,
 input,
 select {
@@ -79,7 +90,8 @@ select {
 
 .login-panel {
     max-width: 420px;
-    margin: 80px auto;
+    width: min(420px, 100%);
+    margin: 0 auto;
     padding: 32px;
     background: var(--surface);
     border: 1px solid var(--line);
@@ -155,8 +167,32 @@ h2 {
 .live-actions {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: 8px;
     justify-content: flex-end;
+}
+
+.quality-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 40px;
+    padding: 0 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface-muted);
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.quality-control select {
+    min-height: 30px;
+    padding: 4px 8px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #ffffff;
+    color: var(--ink);
 }
 
 .primary-button,
@@ -185,6 +221,12 @@ h2 {
     background: var(--surface-muted);
     border-color: var(--line);
     color: var(--ink);
+}
+
+.danger-button {
+    border-color: #fecdd3;
+    background: #fff1f2;
+    color: #be123c;
 }
 
 .record-button {
@@ -237,6 +279,68 @@ h2 {
     font-size: 13px;
 }
 
+.participant-list {
+    display: grid;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.participant-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 9px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fbfdff;
+}
+
+.participant-row span {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+}
+
+.participant-row strong,
+.participant-row small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.participant-row small {
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.participant-row em {
+    color: var(--accent);
+    font-size: 12px;
+    font-style: normal;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.participant-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.participant-actions .secondary-button {
+    min-height: 30px;
+    padding: 0 9px;
+    font-size: 12px;
+}
+
+.participant-row.presenting {
+    border-color: rgba(15, 118, 110, 0.35);
+    background: #ecfdf5;
+}
+
 .video-overlay {
     position: absolute;
     left: 14px;
@@ -269,6 +373,38 @@ h2 {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
+}
+
+.live-materials-panel {
+    margin-top: 18px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+}
+
+.live-materials-panel .section-header {
+    margin-bottom: 12px;
+}
+
+.host-tile video:fullscreen {
+    width: 100vw;
+    height: 100vh;
+    object-fit: contain;
+    background: #000000;
+}
+
+.live-upload-form {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 12px;
+    margin-bottom: 14px;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fbfdff;
+}
+
+.live-upload-form .form-message {
+    grid-column: 1 / -1;
 }
 
 .small-tile {
@@ -479,6 +615,10 @@ body[data-role="student"] .host-panel {
     display: none;
 }
 
+body.is-live #managementPanel {
+    display: none;
+}
+
 body[data-account-role="aluno"] .host-control,
 body[data-account-role="aluno"] .host-panel,
 body[data-account-role="aluno"] .manager-panel {
@@ -606,7 +746,7 @@ body[data-role="student"] .workspace {
 /* Login Container */
 .login-container {
     max-width: 400px;
-    margin: 60px auto;
+    margin: 0 auto;
     text-align: center;
 }
 
@@ -674,6 +814,7 @@ body[data-role="student"] .workspace {
 /* Create Room Form */
 .create-room-form {
     display: flex;
+    flex-wrap: wrap;
     gap: 12px;
     align-items: flex-end;
 }
@@ -735,6 +876,10 @@ body[data-role="student"] .workspace {
     }
 
     .file-card {
+        grid-template-columns: 1fr;
+    }
+
+    .live-upload-form {
         grid-template-columns: 1fr;
     }
 
