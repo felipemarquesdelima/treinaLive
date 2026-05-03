@@ -2,7 +2,6 @@ const body = document.body;
 const authPanel = document.querySelector("#authPanel");
 const dashboardPanel = document.querySelector("#dashboardPanel");
 const livePanel = document.querySelector("#livePanel");
-const managementPanel = document.querySelector("#managementPanel");
 const loginForm = document.querySelector("#loginForm");
 const createRoomForm = document.querySelector("#createRoomForm");
 const usernameInput = document.querySelector("#usernameInput");
@@ -25,22 +24,23 @@ const localVideo = document.querySelector("#localVideo");
 const localRoleLabel = document.querySelector("#localRoleLabel");
 const localNameLabel = document.querySelector("#localNameLabel");
 const recordingStatus = document.querySelector("#recordingStatus");
+const recordingMessage = document.querySelector("#recordingMessage");
+const remoteStrip = document.querySelector("#remoteStrip");
 const remoteGrid = document.querySelector("#remoteGrid");
+const remoteScrollPrev = document.querySelector("#remoteScrollPrev");
+const remoteScrollNext = document.querySelector("#remoteScrollNext");
+const videoLayout = document.querySelector(".video-layout");
+const hostTile = document.querySelector(".host-tile");
 const participantCount = document.querySelector("#participantCount");
 const participantList = document.querySelector("#participantList");
-const uploadForm = document.querySelector("#uploadForm");
-const uploadMessage = document.querySelector("#uploadMessage");
 const liveUploadForm = document.querySelector("#liveUploadForm");
 const liveUploadMessage = document.querySelector("#liveUploadMessage");
-const lessonTitleInput = document.querySelector("#lessonTitleInput");
-const lessonSelectUpload = document.querySelector("#lessonSelectUpload");
 const lessonSelectRecordings = document.querySelector("#lessonSelectRecordings");
 const lessonSelectMaterials = document.querySelector("#lessonSelectMaterials");
 const recordingsList = document.querySelector("#recordingsList");
 const materialsList = document.querySelector("#materialsList");
 const liveMaterialsList = document.querySelector("#liveMaterialsList");
 const recordingsTitle = document.querySelector("#recordingsTitle");
-const fileList = document.querySelector("#fileList");
 const liveRoomsList = document.querySelector("#liveRoomsList");
 const refreshUsersButton = document.querySelector("#refreshUsersButton");
 const userForm = document.querySelector("#userForm");
@@ -58,8 +58,10 @@ const roomPasswordInput = document.querySelector("#roomPasswordInput");
 const stageRoomName = document.querySelector("#stageRoomName");
 const tabButtons = document.querySelectorAll(".tab-button");
 const tabLive = document.querySelector("#tab-live");
+const tabCreateRoom = document.querySelector("#tab-create-room");
 const tabRecordings = document.querySelector("#tab-recordings");
 const tabMaterials = document.querySelector("#tab-materials");
+const tabUsers = document.querySelector("#tab-users");
 
 const peers = new Map();
 const participants = new Map();
@@ -89,6 +91,15 @@ const STREAM_QUALITY_PRESETS = {
     "720p": { label: "720p", targetHeight: 720, maxBitrate: 1800000 },
     "1080p": { label: "1080p", targetHeight: 1080, maxBitrate: 4000000 }
 };
+
+if ("ResizeObserver" in window && hostTile) {
+    new ResizeObserver(queueStageVideoHeightSync).observe(hostTile);
+}
+window.addEventListener("resize", queueStageVideoHeightSync);
+window.addEventListener("resize", queueRemoteScrollControlsUpdate);
+queueStageVideoHeightSync();
+queueRemoteScrollControlsUpdate();
+
 loginForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     await login();
@@ -124,16 +135,7 @@ logoutButton.addEventListener("click", logout);
 // Tabs do dashboard
 tabButtons.forEach(button => {
     button.addEventListener("click", () => {
-        const tab = button.dataset.tab;
-        
-        // Atualizar botoes
-        tabButtons.forEach(btn => btn.classList.remove("active"));
-        button.classList.add("active");
-        
-        // Atualizar conteudo
-        tabLive.hidden = tab !== "live";
-        tabRecordings.hidden = tab !== "recordings";
-        tabMaterials.hidden = tab !== "materials";
+        showDashboardTab(button.dataset.tab);
     });
 });
 
@@ -245,6 +247,9 @@ streamQualitySelect.addEventListener("change", requestStreamQuality);
 fullscreenButton.addEventListener("click", toggleTrainingFullscreen);
 document.addEventListener("fullscreenchange", updateFullscreenButton);
 leaveButton.addEventListener("click", leaveRoom);
+remoteScrollPrev.addEventListener("click", () => scrollRemoteWebcams(-1));
+remoteScrollNext.addEventListener("click", () => scrollRemoteWebcams(1));
+remoteGrid.addEventListener("scroll", queueRemoteScrollControlsUpdate, { passive: true });
 refreshUsersButton.addEventListener("click", loadUsers);
 window.addEventListener("beforeunload", () => {
     if (session) {
@@ -257,54 +262,10 @@ userForm.addEventListener("submit", async (event) => {
     await createUser();
 });
 
-uploadForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    if (!currentUserCanHost()) {
-        showUploadMessage("Apenas mestre ou administrador pode enviar arquivos.", true);
-        return;
-    }
-
-    const formData = new FormData(uploadForm);
-    const file = formData.get("file");
-
-    if (!file || !file.name) {
-        showUploadMessage("Selecione um arquivo para enviar.", true);
-        return;
-    }
-
-    showUploadMessage("Enviando arquivo...", false);
-
-    try {
-        const lessonTitle = lessonTitleInput.value.trim() || lessonSelectUpload.value.trim() || "Aula gravada";
-        const isVideo = isVideoFile(file.name, file.type);
-        const uploadType = isVideo ? "recording=true" : "material=true";
-        const response = await apiFetch(`/api/upload?${uploadType}&lessonTitle=${encodeURIComponent(lessonTitle)}`, {
-            method: "POST",
-            body: formData
-        });
-
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.error || "Falha ao enviar arquivo");
-        }
-
-        uploadForm.reset();
-        showUploadMessage("Arquivo enviado com sucesso.", false);
-        if (isVideo) {
-            await loadLessons();
-            await loadFiles();
-        } else {
-            await refreshUploadedMaterials(lessonTitle);
-        }
-    } catch (error) {
-        showUploadMessage(error.message, true);
-    }
-});
-
 liveUploadForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!session || !currentUserCanHost()) {
-        showLiveUploadMessage("Entre em uma aula como host para enviar materiais.", true);
+        showLiveUploadMessage("Entre em uma aula como apresentador para enviar materiais.", true);
         return;
     }
 
@@ -316,7 +277,7 @@ liveUploadForm.addEventListener("submit", async (event) => {
     }
 
     if (isVideoFile(file.name, file.type)) {
-        showLiveUploadMessage("Use materiais como PDF, imagens ou documentos. Videos ficam em aulas gravadas.", true);
+        showLiveUploadMessage("Use materiais como PDF, imagens ou documentos. Grave videos pelo botao Gravar aula.", true);
         return;
     }
 
@@ -364,8 +325,9 @@ async function login() {
         localStorage.setItem("treinalive_auth", JSON.stringify(auth));
         authMessage.textContent = "";
         applyAuthUi();
-        await loadFiles();
-        await loadUsers();
+        if (currentUserCanHost()) {
+            await loadUsers();
+        }
     } catch (error) {
         authMessage.textContent = error.message;
         authMessage.classList.add("error");
@@ -405,7 +367,7 @@ function applyAuthUi() {
 
     const canHost = user && user.role !== "aluno";
     body.dataset.role = canHost ? "host" : "student";
-    localRoleLabel.textContent = canHost ? "Host local" : "Aluno";
+    localRoleLabel.textContent = canHost ? "Apresentador local" : "Aluno";
     requestScreenButton.hidden = true;
     if (user) {
         localNameLabel.textContent = user.name;
@@ -416,13 +378,17 @@ function applyAuthUi() {
     if (user?.role === "administrador") {
         newRoleInput.value = "aluno";
     }
+    if (user) {
+        ensureDashboardTabAccess();
+    }
     
     // Se logado fora da aula ao vivo, carregar dados do dashboard
     if (user && !session) {
         loadRooms();
         loadLessons();
-        loadFiles();
-        loadUsers();
+        if (canHost) {
+            loadUsers();
+        }
     }
 }
 
@@ -430,7 +396,90 @@ function setLiveMode(isLive) {
     body.classList.toggle("is-live", isLive);
     dashboardPanel.hidden = isLive || !auth?.user;
     livePanel.hidden = !isLive;
-    managementPanel.hidden = isLive || !auth?.user || auth.user.role === "aluno";
+    queueStageVideoHeightSync();
+}
+
+function queueStageVideoHeightSync() {
+    requestAnimationFrame(syncStageVideoHeight);
+}
+
+function syncStageVideoHeight() {
+    if (!videoLayout || !hostTile || livePanel.hidden) {
+        return;
+    }
+
+    const height = Math.round(hostTile.getBoundingClientRect().height);
+    if (height > 0) {
+        videoLayout.style.setProperty("--stage-video-height", `${height}px`);
+    }
+}
+
+function scrollRemoteWebcams(direction) {
+    const amount = Math.max(remoteGrid.clientWidth * 0.8, 180);
+    remoteGrid.scrollBy({
+        left: direction * amount,
+        behavior: "smooth"
+    });
+}
+
+function queueRemoteScrollControlsUpdate() {
+    requestAnimationFrame(updateRemoteScrollControls);
+}
+
+function updateRemoteScrollControls() {
+    if (!remoteStrip || !remoteGrid || !remoteScrollPrev || !remoteScrollNext) {
+        return;
+    }
+
+    const hasWebcams = remoteGrid.children.length > 0;
+    remoteStrip.classList.toggle("has-webcams", hasWebcams);
+
+    if (!hasWebcams) {
+        remoteStrip.classList.remove("is-scrollable");
+        return;
+    }
+
+    const hasOverflow = remoteGrid.scrollWidth > remoteGrid.clientWidth + 2;
+    const atStart = remoteGrid.scrollLeft <= 1;
+    const atEnd = remoteGrid.scrollLeft + remoteGrid.clientWidth >= remoteGrid.scrollWidth - 1;
+
+    remoteStrip.classList.toggle("is-scrollable", hasOverflow);
+    remoteScrollPrev.disabled = !hasOverflow || atStart;
+    remoteScrollNext.disabled = !hasOverflow || atEnd;
+}
+
+function showDashboardTab(tab) {
+    const hostOnlyTabs = new Set(["create-room", "users"]);
+    const selectedTab = hostOnlyTabs.has(tab) && !currentUserCanHost() ? "live" : tab;
+    const contentsByTab = {
+        live: tabLive,
+        "create-room": tabCreateRoom,
+        recordings: tabRecordings,
+        materials: tabMaterials,
+        users: tabUsers
+    };
+
+    tabButtons.forEach((button) => {
+        button.classList.toggle("active", button.dataset.tab === selectedTab);
+    });
+
+    Object.entries(contentsByTab).forEach(([name, content]) => {
+        content.hidden = name !== selectedTab;
+    });
+
+    if (selectedTab === "live") {
+        loadRooms();
+    }
+    if (selectedTab === "users") {
+        loadUsers();
+    }
+}
+
+function ensureDashboardTabAccess() {
+    const activeButton = document.querySelector(".tab-button.active");
+    if (!activeButton || (activeButton.classList.contains("host-control") && !currentUserCanHost())) {
+        showDashboardTab("live");
+    }
 }
 
 function updateRoomPrivacyUi() {
@@ -505,7 +554,8 @@ async function loadRooms() {
 
 function renderRooms(rooms) {
     if (!rooms.length) {
-        liveRoomsList.innerHTML = "<div class='empty-state'>Nenhuma aula ao vivo no momento.<br>Crie uma nova sala se for host.</div>";
+        const hint = currentUserCanHost() ? "<br>Use a aba Criar sala para iniciar uma transmissão." : "";
+        liveRoomsList.innerHTML = `<div class='empty-state'>Nenhuma aula ao vivo no momento.${hint}</div>`;
         return;
     }
     
@@ -629,6 +679,7 @@ async function leaveRoom() {
     liveMaterialsSignature = "";
     liveMaterialsList.innerHTML = "";
     remoteGrid.innerHTML = "";
+    queueRemoteScrollControlsUpdate();
     updateParticipants();
     updatePresentationUi();
     session = null;
@@ -892,6 +943,7 @@ function createRemoteTile(peer) {
         </div>
     `;
     remoteGrid.appendChild(tile);
+    queueRemoteScrollControlsUpdate();
     updateParticipants();
     return tile.querySelector("video");
 }
@@ -904,6 +956,7 @@ function removePeer(peerId) {
     }
     participants.delete(peerId);
     document.querySelector(`[data-peer-id="${peerId}"]`)?.remove();
+    queueRemoteScrollControlsUpdate();
     updateParticipants();
 }
 
@@ -1086,7 +1139,10 @@ async function startRecording() {
     mediaRecorder.start(1000);
     recordButton.textContent = "Parar gravacao";
     recordButton.classList.add("recording");
+    recordingStatus.textContent = "Gravando";
+    recordingStatus.classList.remove("error");
     recordingStatus.hidden = false;
+    showRecordingMessage("", false);
 }
 
 async function saveRecording() {
@@ -1104,7 +1160,7 @@ async function saveRecording() {
     const lessonTitle = activeRecordingLessonTitle || session?.room || "Aula gravada";
     const formData = new FormData();
     formData.append("file", blob, fileName);
-    showUploadMessage("Salvando gravacao da aula...", false);
+    showRecordingMessage("Salvando gravacao da aula...", false);
 
     try {
         const response = await apiFetch(`/api/upload?recording=true&lessonTitle=${encodeURIComponent(lessonTitle)}`, {
@@ -1116,11 +1172,10 @@ async function saveRecording() {
             throw new Error("Nao foi possivel salvar a gravacao.");
         }
 
-        showUploadMessage("Gravacao salva na lista de aulas.", false);
+        showRecordingMessage("Gravacao salva na lista de aulas.", false);
         await loadLessons();
-        await loadFiles();
     } catch (error) {
-        showUploadMessage(error.message, true);
+        showRecordingMessage(error.message, true);
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
@@ -1332,9 +1387,10 @@ function delay(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function showUploadMessage(message, isError) {
-    uploadMessage.textContent = message;
-    uploadMessage.classList.toggle("error", isError);
+function showRecordingMessage(message, isError) {
+    recordingMessage.textContent = message;
+    recordingMessage.hidden = !message;
+    recordingMessage.classList.toggle("error", isError);
 }
 
 function showLiveUploadMessage(message, isError) {
@@ -1409,14 +1465,12 @@ function mergeLessonOptions(lessons, rooms) {
 }
 
 function updateLessonSelects(lessons) {
-    const selects = [lessonSelectUpload, lessonSelectRecordings, lessonSelectMaterials];
+    const selects = [lessonSelectRecordings, lessonSelectMaterials];
     selects.forEach((select) => {
         const isMaterialsSelect = select === lessonSelectMaterials;
         const firstLabel = isMaterialsSelect
             ? "Todos os materiais"
-            : select === lessonSelectUpload
-                ? "-- selecione ou crie novo --"
-                : "-- selecione uma aula --";
+            : "-- selecione uma aula --";
         const firstValue = isMaterialsSelect ? ALL_MATERIALS_VALUE : "";
         select.innerHTML = `<option value="${firstValue}">${firstLabel}</option>`;
         lessons.forEach((lesson) => {
@@ -1426,48 +1480,6 @@ function updateLessonSelects(lessons) {
             select.appendChild(option);
         });
     });
-}
-
-async function loadFiles() {
-    if (!auth?.user) {
-        fileList.innerHTML = "<div class='empty-state'>Faca login para ver os materiais.</div>";
-        return;
-    }
-    fileList.innerHTML = "<div class='empty-state'>Carregando materiais...</div>";
-
-    try {
-        const response = await apiFetch("/api/files");
-        if (!response.ok) {
-            throw new Error("Nao foi possivel carregar os materiais.");
-        }
-        const files = await response.json();
-        renderFiles(files);
-    } catch (error) {
-        fileList.innerHTML = "<div class='empty-state'>Nao foi possivel carregar os materiais.</div>";
-    }
-}
-
-function renderFiles(files) {
-    if (!files.length) {
-        fileList.innerHTML = "<div class='empty-state'>Nenhum material enviado ainda.</div>";
-        return;
-    }
-
-    fileList.innerHTML = files.map((file) => {
-        const size = formatBytes(file.size);
-        const date = new Date(file.modified).toLocaleString("pt-BR");
-        const href = `/download?name=${encodeURIComponent(file.name)}&token=${encodeURIComponent(auth?.token || "")}`;
-
-        return `
-            <article class="file-card">
-                <div>
-                    <strong>${escapeHtml(file.name)}</strong>
-                    <span>${size} - ${date}</span>
-                </div>
-                <a class="download-link" href="${href}">Baixar</a>
-            </article>
-        `;
-    }).join("");
 }
 
 function renderLessons(lessons) {
@@ -1628,7 +1640,6 @@ async function refreshUploadedMaterials(lessonTitle) {
     }
 
     await loadLessons();
-    await loadFiles();
 }
 
 function flattenMaterialGroups(groups) {
@@ -1780,8 +1791,9 @@ async function initAuth() {
         }
     }
     applyAuthUi();
-    await loadFiles();
-    await loadUsers();
+    if (currentUserCanHost()) {
+        await loadUsers();
+    }
 }
 
 function formatBytes(bytes) {

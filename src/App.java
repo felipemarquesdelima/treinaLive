@@ -50,7 +50,6 @@ public class App {
         server.createContext("/api/session/poll", new PollHandler());
         server.createContext("/api/session/signal", new SignalHandler());
         server.createContext("/api/session/leave", new LeaveHandler());
-        server.createContext("/api/files", new FilesHandler());
         server.createContext("/api/upload", new UploadHandler());
         server.createContext("/download", new DownloadHandler());
         server.createContext("/", new StaticHandler());
@@ -58,7 +57,7 @@ public class App {
         server.start();
 
         System.out.println("Plataforma de treinamentos online iniciada em http://localhost:" + PORT);
-        System.out.println("Arquivos enviados ficam em: " + UPLOAD_DIR);
+        System.out.println("Uploads ficam em: " + UPLOAD_DIR);
     }
 
     private static class LoginHandler implements HttpHandler {
@@ -543,46 +542,6 @@ public class App {
         }
     }
 
-    private static class FilesHandler implements HttpHandler {
-        @Override
-        public void handle(HttpExchange exchange) throws IOException {
-            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-                sendJson(exchange, 405, "{\"error\":\"Metodo nao permitido\"}");
-                return;
-            }
-            UserAccount account = requireAuth(exchange);
-            if (account == null) {
-                return;
-            }
-
-            List<Path> files = new ArrayList<>();
-            if (Files.exists(UPLOAD_DIR)) {
-                try (var stream = Files.list(UPLOAD_DIR)) {
-                    stream.filter(Files::isRegularFile)
-                            .filter(path -> !isMetadataFile(path.getFileName().toString()))
-                            .sorted(Comparator.comparing(path -> path.toFile().lastModified(), Comparator.reverseOrder()))
-                            .forEach(files::add);
-                }
-            }
-
-            StringBuilder json = new StringBuilder("[");
-            for (int i = 0; i < files.size(); i++) {
-                Path file = files.get(i);
-                if (i > 0) {
-                    json.append(',');
-                }
-                json.append('{')
-                        .append("\"name\":\"").append(escapeJson(file.getFileName().toString())).append("\",")
-                        .append("\"size\":").append(Files.size(file)).append(',')
-                        .append("\"modified\":\"").append(Instant.ofEpochMilli(file.toFile().lastModified())).append("\",")
-                        .append("\"type\":\"").append(escapeJson(Files.probeContentType(file))).append("\"")
-                        .append('}');
-            }
-            json.append(']');
-            sendJson(exchange, 200, json.toString());
-        }
-    }
-
     private static class UploadHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
@@ -595,7 +554,7 @@ public class App {
                 return;
             }
             if (!canHost(account)) {
-                sendJson(exchange, 403, "{\"error\":\"Alunos nao podem enviar arquivos\"}");
+                sendJson(exchange, 403, "{\"error\":\"Apenas mestre ou administrador pode enviar arquivos\"}");
                 return;
             }
 
@@ -623,6 +582,18 @@ public class App {
                 safeName = "arquivo-" + System.currentTimeMillis();
             }
 
+            Map<String, String> query = parseQuery(exchange.getRequestURI().getRawQuery());
+            boolean recordingUpload = "true".equalsIgnoreCase(query.getOrDefault("recording", "false"));
+            boolean materialUpload = "true".equalsIgnoreCase(query.getOrDefault("material", "false"));
+            if (recordingUpload == materialUpload) {
+                sendJson(exchange, 400, "{\"error\":\"Informe se o arquivo e uma gravacao ou um material\"}");
+                return;
+            }
+            if (materialUpload && isVideoFile(safeName, "")) {
+                sendJson(exchange, 400, "{\"error\":\"Envie apenas materiais. Grave videos pelo botao Gravar aula\"}");
+                return;
+            }
+
             Path destination = uniquePath(UPLOAD_DIR.resolve(safeName).normalize());
             if (!destination.startsWith(UPLOAD_DIR)) {
                 sendJson(exchange, 400, "{\"error\":\"Nome de arquivo invalido\"}");
@@ -631,8 +602,7 @@ public class App {
 
             Files.write(destination, upload.content);
 
-            Map<String, String> query = parseQuery(exchange.getRequestURI().getRawQuery());
-            if ("true".equalsIgnoreCase(query.getOrDefault("recording", "false"))) {
+            if (recordingUpload) {
                 String lessonTitle = limit(query.getOrDefault("lessonTitle", "Aula gravada"), 90);
                 appendRecording(new LessonRecording(
                         lessonTitle.isBlank() ? "Aula gravada" : lessonTitle,
@@ -641,7 +611,7 @@ public class App {
                         Instant.ofEpochMilli(destination.toFile().lastModified()).toString(),
                         Files.probeContentType(destination)
                 ));
-            } else if ("true".equalsIgnoreCase(query.getOrDefault("material", "false"))) {
+            } else {
                 String lessonTitle = limit(query.getOrDefault("lessonTitle", "Material"), 90);
                 appendMaterial(new Material(
                         lessonTitle.isBlank() ? "Material" : lessonTitle,
