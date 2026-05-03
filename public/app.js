@@ -84,6 +84,7 @@ let liveMaterialsRefreshId = null;
 let liveMaterialsSignature = "";
 let muted = false;
 let auth = JSON.parse(localStorage.getItem("treinalive_auth") || "null");
+let appFullscreenFallback = false;
 const ALL_MATERIALS_VALUE = "__all_materials__";
 const STREAM_QUALITY_PRESETS = {
     auto: { label: "Auto", targetHeight: 0, maxBitrate: 0 },
@@ -153,12 +154,8 @@ lessonSelectMaterials.addEventListener("change", async (event) => {
 });
 
 cameraButton.addEventListener("click", async () => {
-    if (localStream) {
-        stopStream(localStream);
-        localStream = null;
-        localVideo.srcObject = null;
-        cameraButton.textContent = "Ligar camera";
-        publishActiveStream();
+    if (hasLocalVideo()) {
+        stopLocalCamera();
         return;
     }
     await startCamera();
@@ -245,7 +242,9 @@ recordButton.addEventListener("click", async () => {
 
 streamQualitySelect.addEventListener("change", requestStreamQuality);
 fullscreenButton.addEventListener("click", toggleTrainingFullscreen);
-document.addEventListener("fullscreenchange", updateFullscreenButton);
+["fullscreenchange", "webkitfullscreenchange", "msfullscreenchange"].forEach((eventName) => {
+    document.addEventListener(eventName, handleFullscreenChange);
+});
 leaveButton.addEventListener("click", leaveRoom);
 remoteScrollPrev.addEventListener("click", () => scrollRemoteWebcams(-1));
 remoteScrollNext.addEventListener("click", () => scrollRemoteWebcams(1));
@@ -492,25 +491,96 @@ function updateRoomPrivacyUi() {
 }
 
 async function toggleTrainingFullscreen() {
-    if (!document.fullscreenEnabled || !localVideo.requestFullscreen) {
-        alert("Tela cheia nao esta disponivel neste navegador.");
+    if (isTrainingFullscreen()) {
+        await exitTrainingFullscreen();
         return;
     }
 
+    const target = livePanel || localVideo;
+    const requestFullscreen = fullscreenRequestFor(target);
+
+    if (!requestFullscreen) {
+        enterFallbackFullscreen();
+        return;
+    }
+
+    setTrainingFullscreenClass(true);
     try {
-        if (document.fullscreenElement) {
-            await document.exitFullscreen();
-        } else {
-            await localVideo.requestFullscreen();
+        await asPromise(requestFullscreen.call(target));
+        if (!fullscreenElement()) {
+            enterFallbackFullscreen();
+            return;
         }
     } catch (error) {
-        alert("Nao foi possivel alternar para tela cheia.");
+        enterFallbackFullscreen();
+        return;
     }
+    updateFullscreenButton();
+    queueStageVideoHeightSync();
+}
+
+async function exitTrainingFullscreen() {
+    appFullscreenFallback = false;
+    const exitFullscreen = fullscreenExitFor();
+
+    if (fullscreenElement() && exitFullscreen) {
+        await asPromise(exitFullscreen.call(document)).catch(() => {});
+    }
+
+    setTrainingFullscreenClass(false);
+    updateFullscreenButton();
+    queueStageVideoHeightSync();
+}
+
+function enterFallbackFullscreen() {
+    appFullscreenFallback = true;
+    setTrainingFullscreenClass(true);
+    window.scrollTo(0, 0);
+    updateFullscreenButton();
+    queueStageVideoHeightSync();
+}
+
+function handleFullscreenChange() {
+    if (!fullscreenElement()) {
+        appFullscreenFallback = false;
+        setTrainingFullscreenClass(false);
+    } else {
+        setTrainingFullscreenClass(true);
+    }
+    updateFullscreenButton();
+    queueStageVideoHeightSync();
+}
+
+function isTrainingFullscreen() {
+    return appFullscreenFallback || Boolean(fullscreenElement());
+}
+
+function setTrainingFullscreenClass(enabled) {
+    document.documentElement.classList.toggle("is-training-fullscreen", enabled);
+    body.classList.toggle("is-training-fullscreen", enabled);
+    body.classList.toggle("is-fallback-fullscreen", enabled && appFullscreenFallback);
+}
+
+function fullscreenElement() {
+    return document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement || null;
+}
+
+function fullscreenRequestFor(element) {
+    return element?.requestFullscreen || element?.webkitRequestFullscreen || element?.msRequestFullscreen || null;
+}
+
+function fullscreenExitFor() {
+    return document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen || null;
+}
+
+function asPromise(value) {
+    return value && typeof value.then === "function" ? value : Promise.resolve(value);
 }
 
 function updateFullscreenButton() {
-    const isFullscreen = document.fullscreenElement === localVideo;
+    const isFullscreen = isTrainingFullscreen();
     fullscreenButton.textContent = isFullscreen ? "Sair da tela cheia" : "Tela cheia";
+    fullscreenButton.setAttribute("aria-pressed", String(isFullscreen));
 }
 
 function roleLabel(role) {
@@ -605,7 +675,7 @@ async function joinRoomByName(roomName, options = {}) {
     if (!response.ok) {
         const error = await response.json().catch(() => ({}));
         alert(error.error || "Nao foi possivel entrar na sala.");
-        connectionStatus.textContent = "offline";
+        connectionStatus.textContent = response.status === 409 ? "autenticado" : "offline";
         return false;
     }
 
@@ -648,14 +718,24 @@ async function joinRoomByName(roomName, options = {}) {
     if (isPresentationOwner()) {
         announcePresentationOwner();
         publishActiveStream();
+    } else if (getOutboundStream()) {
+        publishActiveStream();
     }
     return true;
 }
 
 async function leaveRoom() {
+    await closeLocalSession({ notifyServer: true });
+}
+
+async function closeLocalSession(options = {}) {
     if (!session) {
         return;
     }
+
+    const leavingSession = session;
+    const notifyServer = Boolean(options.notifyServer);
+    const statusText = options.statusText || "autenticado";
 
     if (mediaRecorder && mediaRecorder.state === "recording") {
         mediaRecorder.stop();
@@ -663,14 +743,16 @@ async function leaveRoom() {
 
     pollStopped = true;
     stopLiveMaterialsRefresh();
-    if (document.fullscreenElement === localVideo) {
-        await document.exitFullscreen().catch(() => {});
+    if (isTrainingFullscreen()) {
+        await exitTrainingFullscreen();
     }
-    await apiFetch("/api/session/leave", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ room: session.room, id: session.id })
-    }).catch(() => {});
+    if (notifyServer) {
+        await apiFetch("/api/session/leave", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ room: leavingSession.room, id: leavingSession.id })
+        }).catch(() => {});
+    }
 
     peers.forEach((entry) => entry.connection.close());
     peers.clear();
@@ -686,7 +768,7 @@ async function leaveRoom() {
     
     // Voltar ao dashboard
     setLiveMode(false);
-    connectionStatus.textContent = "autenticado";
+    connectionStatus.textContent = statusText;
     roomStatus.textContent = "Plataforma de treinamentos";
     
     // Recarregar salas
@@ -694,23 +776,68 @@ async function leaveRoom() {
 }
 
 async function startCamera() {
-    if (localStream) {
+    if (hasLocalVideo()) {
         return localStream;
     }
 
     try {
-        localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        if (isPresentationOwner()) {
-            localVideo.srcObject = localStream;
+        const includeAudio = isPresentationOwner() && !hasLocalAudio();
+        const cameraStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: includeAudio });
+        if (!localStream) {
+            localStream = new MediaStream();
         }
-        setLocalMuted(false);
-        cameraButton.textContent = "Desligar camera";
+        cameraStream.getTracks().forEach((track) => {
+            localStream.addTrack(track);
+            if (track.kind === "video") {
+                track.addEventListener("ended", handleLocalCameraEnded, { once: true });
+            }
+        });
+        if (isPresentationOwner()) {
+            localVideo.srcObject = getActivePresentationStream();
+        } else {
+            updateLocalCameraPreview();
+        }
+        if (includeAudio) {
+            setLocalMuted(false);
+        }
+        updateCameraButton();
         publishActiveStream();
         return localStream;
     } catch (error) {
         alert("Nao foi possivel acessar a webcam. Verifique as permissoes do navegador.");
         return null;
     }
+}
+
+function stopLocalCamera() {
+    localStream?.getVideoTracks().forEach((track) => {
+        track.stop();
+        localStream.removeTrack(track);
+    });
+
+    if (localStream && !localStream.getTracks().length) {
+        localStream = null;
+    }
+
+    updateCameraButton();
+    updateLocalCameraPreview();
+    publishActiveStream();
+    renderMainPresentation();
+}
+
+function handleLocalCameraEnded() {
+    (localStream?.getVideoTracks() || [])
+        .filter((track) => track.readyState === "ended")
+        .forEach((track) => localStream.removeTrack(track));
+
+    if (localStream && !localStream.getTracks().length) {
+        localStream = null;
+    }
+
+    updateCameraButton();
+    updateLocalCameraPreview();
+    publishActiveStream();
+    renderMainPresentation();
 }
 
 async function startMicrophone() {
@@ -738,6 +865,46 @@ function hasLocalAudio() {
     return Boolean(localStream?.getAudioTracks().length);
 }
 
+function hasLocalVideo() {
+    return Boolean(localStream?.getVideoTracks().some((track) => track.readyState !== "ended"));
+}
+
+function updateCameraButton() {
+    cameraButton.textContent = hasLocalVideo() ? "Desligar camera" : "Ligar camera";
+}
+
+function updateLocalCameraPreview() {
+    let tile = remoteGrid.querySelector("[data-local-camera='true']");
+    const shouldShowPreview = Boolean(session && !isPresentationOwner() && hasLocalVideo());
+
+    if (!shouldShowPreview) {
+        tile?.remove();
+        queueRemoteScrollControlsUpdate();
+        return;
+    }
+
+    if (!tile) {
+        tile = document.createElement("article");
+        tile.className = "video-tile small-tile online local-preview";
+        tile.dataset.localCamera = "true";
+        tile.dataset.state = "connected";
+        tile.innerHTML = `
+            <video autoplay muted playsinline></video>
+            <div class="remote-label">
+                <strong>Voce</strong>
+                <span>Sua webcam</span>
+            </div>
+        `;
+        remoteGrid.prepend(tile);
+    }
+
+    const video = tile.querySelector("video");
+    if (video.srcObject !== localStream) {
+        video.srcObject = localStream;
+    }
+    queueRemoteScrollControlsUpdate();
+}
+
 function setLocalMuted(shouldMute) {
     muted = shouldMute;
     localStream?.getAudioTracks().forEach((track) => {
@@ -761,6 +928,10 @@ async function pollSignals() {
         try {
             const response = await apiFetch(`/api/session/poll?room=${encodeURIComponent(session.room)}&id=${encodeURIComponent(session.id)}`);
             if (!response.ok) {
+                if (response.status === 403 || response.status === 404) {
+                    await closeLocalSession({ statusText: "autenticado" });
+                    return;
+                }
                 throw new Error("Polling interrompido");
             }
             const messages = await response.json();
@@ -788,6 +959,8 @@ async function handleSignal(message) {
         if (isPresentationOwner()) {
             createPeerConnection(peer, true);
             announcePresentationOwner(peer.id);
+        } else if (getOutboundStream()) {
+            createPeerConnection(peer, true);
         }
         return;
     }
@@ -994,6 +1167,8 @@ function publishActiveStream() {
     const outboundStream = getOutboundStream();
     if (isPresentationOwner()) {
         localVideo.srcObject = getActivePresentationStream();
+    } else {
+        updateLocalCameraPreview();
     }
     replaceTracks(outboundStream);
     peers.forEach((entry) => {
@@ -1011,7 +1186,7 @@ function getOutboundStream() {
             tracks.push(...presentationStream.getTracks());
         }
     } else if (localStream) {
-        tracks.push(...localStream.getAudioTracks());
+        tracks.push(...localStream.getTracks());
     }
     return tracks.length ? new MediaStream(tracks) : null;
 }
@@ -1310,6 +1485,8 @@ function updatePresentationUi() {
     cameraButton.disabled = Boolean(session && currentUserCanHost() && !isPresentationOwner());
     streamQualityControl.hidden = !session || isPresentationOwner();
     streamQualitySelect.disabled = !presentationOwnerId;
+    updateCameraButton();
+    updateLocalCameraPreview();
     updateParticipants();
     renderMainPresentation();
 }

@@ -33,6 +33,8 @@ public class App {
     private static final Map<String, Room> ROOMS = new HashMap<>();
     private static final Map<String, UserAccount> USERS = new LinkedHashMap<>();
     private static final Map<String, UserAccount> TOKENS = new HashMap<>();
+    private static final long PARTICIPANT_TIMEOUT_MILLIS = 45_000;
+    private static final long POLL_WAIT_MILLIS = 25_000;
 
     public static void main(String[] args) throws Exception {
         Files.createDirectories(UPLOAD_DIR);
@@ -294,6 +296,7 @@ public class App {
     }
 
     private static String roomsJson() {
+        cleanupStaleRooms();
         StringBuilder json = new StringBuilder("[");
         synchronized (ROOMS) {
             int index = 0;
@@ -343,6 +346,12 @@ public class App {
             Room room;
             List<Participant> peers;
             synchronized (ROOMS) {
+                cleanupStaleRoomsLocked(System.currentTimeMillis());
+                if (isAccountOnlineLocked(account.username)) {
+                    sendJson(exchange, 409, "{\"error\":\"Esta conta ja esta online em uma sala. Saia da outra sessao antes de entrar novamente.\"}");
+                    return;
+                }
+
                 room = ROOMS.get(roomId);
                 if (room == null) {
                     if (!canHost(account)) {
@@ -356,19 +365,19 @@ public class App {
                     room = new Room(roomId, privateRoom, privateRoom ? roomPassword : "");
                     ROOMS.put(roomId, room);
                 }
-            }
 
-            synchronized (room) {
-                if (room.privateRoom && !room.password.equals(roomPassword)) {
-                    sendJson(exchange, 403, "{\"error\":\"Senha da sala privada invalida\"}");
-                    return;
+                synchronized (room) {
+                    if (room.privateRoom && !room.password.equals(roomPassword)) {
+                        sendJson(exchange, 403, "{\"error\":\"Senha da sala privada invalida\"}");
+                        return;
+                    }
+
+                    peers = new ArrayList<>(room.participants.values());
+                    Participant participant = new Participant(participantId, account.username, name, role, accountRole);
+                    room.participants.put(participantId, participant);
+                    room.broadcast(new SignalMessage("peer-joined", participantId, "", participantJson(participant)), participantId);
+                    room.notifyAll();
                 }
-
-                peers = new ArrayList<>(room.participants.values());
-                Participant participant = new Participant(participantId, name, role, accountRole);
-                room.participants.put(participantId, participant);
-                room.broadcast(new SignalMessage("peer-joined", participantId, "", participantJson(participant)), participantId);
-                room.notifyAll();
             }
 
             StringBuilder json = new StringBuilder();
@@ -401,6 +410,7 @@ public class App {
             Map<String, String> query = parseQuery(exchange.getRequestURI().getRawQuery());
             String roomId = cleanToken(query.getOrDefault("room", ""));
             String participantId = query.getOrDefault("id", "");
+            cleanupStaleRooms();
             Room room;
 
             synchronized (ROOMS) {
@@ -419,14 +429,20 @@ public class App {
                     sendJson(exchange, 404, "{\"error\":\"Participante nao encontrado\"}");
                     return;
                 }
+                if (!participant.username.equals(account.username)) {
+                    sendJson(exchange, 403, "{\"error\":\"Participante nao pertence a esta conta\"}");
+                    return;
+                }
 
                 if (participant.queue.isEmpty()) {
+                    participant.touch();
                     try {
-                        room.wait(25000);
+                        room.wait(POLL_WAIT_MILLIS);
                     } catch (InterruptedException exception) {
                         Thread.currentThread().interrupt();
                     }
                 }
+                participant.touch();
                 messages.addAll(participant.queue);
                 participant.queue.clear();
             }
@@ -465,10 +481,17 @@ public class App {
             }
 
             synchronized (room) {
-                if (!room.participants.containsKey(from)) {
+                Participant sender = room.participants.get(from);
+                if (sender == null) {
                     sendJson(exchange, 404, "{\"error\":\"Remetente nao esta na sala\"}");
                     return;
                 }
+                if (!sender.username.equals(account.username)) {
+                    sendJson(exchange, 403, "{\"error\":\"Remetente nao pertence a esta conta\"}");
+                    return;
+                }
+                sender.touch();
+
                 if (isModerationSignal(type)) {
                     Participant targetParticipant = room.participants.get(target);
                     if (targetParticipant == null) {
@@ -509,7 +532,7 @@ public class App {
             Map<String, String> body = parseSimpleJson(readBody(exchange));
             String roomId = cleanToken(body.getOrDefault("room", ""));
             String participantId = body.getOrDefault("id", "");
-            leaveRoom(roomId, participantId);
+            leaveRoom(roomId, participantId, account.username);
             sendJson(exchange, 200, "{\"ok\":true}");
         }
     }
@@ -1014,19 +1037,101 @@ public class App {
         return value == null ? "" : value.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9._-]", "").trim();
     }
 
-    private static void leaveRoom(String roomId, String participantId) {
+    private static void cleanupStaleRooms() {
+        synchronized (ROOMS) {
+            cleanupStaleRoomsLocked(System.currentTimeMillis());
+        }
+    }
+
+    private static void cleanupStaleRoomsLocked(long now) {
+        List<String> emptyRooms = new ArrayList<>();
+
+        for (Map.Entry<String, Room> entry : ROOMS.entrySet()) {
+            Room room = entry.getValue();
+            cleanupStaleParticipants(room, now);
+            synchronized (room) {
+                if (room.participants.isEmpty()) {
+                    emptyRooms.add(entry.getKey());
+                }
+            }
+        }
+
+        for (String roomId : emptyRooms) {
+            ROOMS.remove(roomId);
+        }
+    }
+
+    private static void cleanupStaleParticipants(Room room, long now) {
+        List<String> removedIds = new ArrayList<>();
+
+        synchronized (room) {
+            List<String> staleIds = new ArrayList<>();
+            for (Participant participant : room.participants.values()) {
+                if (participant.isStale(now)) {
+                    staleIds.add(participant.id);
+                }
+            }
+
+            for (String staleId : staleIds) {
+                Participant removed = room.participants.remove(staleId);
+                if (removed != null) {
+                    removedIds.add(staleId);
+                }
+            }
+
+            for (String removedId : removedIds) {
+                room.broadcast(new SignalMessage("peer-left", removedId, "", "{}"), removedId);
+            }
+
+            if (!removedIds.isEmpty()) {
+                room.notifyAll();
+            }
+        }
+    }
+
+    private static boolean isAccountOnlineLocked(String username) {
+        for (Room room : ROOMS.values()) {
+            synchronized (room) {
+                for (Participant participant : room.participants.values()) {
+                    if (participant.username.equals(username)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private static void leaveRoom(String roomId, String participantId, String username) {
         Room room;
         synchronized (ROOMS) {
             room = ROOMS.get(roomId);
         }
-        if (room == null || participantId.isBlank()) {
+        if (room == null || username.isBlank()) {
             return;
         }
 
+        List<String> removedIds = new ArrayList<>();
         synchronized (room) {
-            Participant removed = room.participants.remove(participantId);
-            if (removed != null) {
-                room.broadcast(new SignalMessage("peer-left", participantId, "", "{}"), participantId);
+            List<String> idsToRemove = new ArrayList<>();
+            for (Participant participant : room.participants.values()) {
+                if (participant.username.equals(username)) {
+                    idsToRemove.add(participant.id);
+                }
+            }
+
+            for (String idToRemove : idsToRemove) {
+                Participant removed = room.participants.remove(idToRemove);
+                if (removed != null) {
+                    removedIds.add(idToRemove);
+                }
+            }
+
+            for (String removedId : removedIds) {
+                room.broadcast(new SignalMessage("peer-left", removedId, "", "{}"), removedId);
+            }
+
+            if (!removedIds.isEmpty()) {
                 room.notifyAll();
             }
         }
@@ -1059,6 +1164,7 @@ public class App {
     private static String participantJson(Participant participant) {
         return "{"
                 + "\"id\":\"" + escapeJson(participant.id) + "\","
+                + "\"username\":\"" + escapeJson(participant.username) + "\","
                 + "\"name\":\"" + escapeJson(participant.name) + "\","
                 + "\"role\":\"" + escapeJson(participant.role) + "\","
                 + "\"accountRole\":\"" + escapeJson(participant.accountRole) + "\""
@@ -1349,16 +1455,28 @@ public class App {
 
     private static class Participant {
         private final String id;
+        private final String username;
         private final String name;
         private final String role;
         private final String accountRole;
         private final List<SignalMessage> queue = new ArrayList<>();
+        private long lastSeenAt;
 
-        private Participant(String id, String name, String role, String accountRole) {
+        private Participant(String id, String username, String name, String role, String accountRole) {
             this.id = id;
+            this.username = username;
             this.name = name.isBlank() ? "Participante" : name;
             this.role = role;
             this.accountRole = accountRole;
+            touch();
+        }
+
+        private void touch() {
+            lastSeenAt = System.currentTimeMillis();
+        }
+
+        private boolean isStale(long now) {
+            return now - lastSeenAt > PARTICIPANT_TIMEOUT_MILLIS;
         }
     }
 

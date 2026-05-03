@@ -16,12 +16,22 @@
     box-sizing: border-box;
 }
 
+[hidden] {
+    display: none !important;
+}
+
 body {
     margin: 0;
     min-height: 100vh;
     background: var(--bg);
     color: var(--ink);
     font-family: Arial, Helvetica, sans-serif;
+}
+
+html.is-training-fullscreen,
+html.is-training-fullscreen body {
+    height: 100%;
+    overflow: hidden;
 }
 
 body:not(.is-authenticated) .topbar {
@@ -493,6 +503,85 @@ h2 {
     background: #000000;
 }
 
+.live-stage:fullscreen {
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+}
+
+body.is-training-fullscreen {
+    background: #07111f;
+}
+
+body.is-training-fullscreen .topbar {
+    display: none;
+}
+
+body.is-training-fullscreen .app-shell {
+    width: 100%;
+    min-height: 100dvh;
+    margin: 0;
+}
+
+body.is-training-fullscreen .live-stage {
+    min-height: 100dvh;
+    padding: 10px;
+    background: #07111f;
+    color: #ffffff;
+}
+
+body.is-fallback-fullscreen .live-stage {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    overflow: auto;
+}
+
+body.is-training-fullscreen .stage-header {
+    margin-bottom: 10px;
+}
+
+body.is-training-fullscreen .room-status,
+body.is-training-fullscreen .section-header p {
+    color: #cbd5e1;
+}
+
+body.is-training-fullscreen .video-layout {
+    grid-template-columns: 1fr;
+    gap: 10px;
+}
+
+body.is-training-fullscreen .participants-panel,
+body.is-training-fullscreen .live-materials-panel {
+    display: none;
+}
+
+body.is-training-fullscreen .host-tile {
+    height: min(72dvh, calc(100dvh - 168px));
+    min-height: 220px;
+    aspect-ratio: auto;
+    background: #000000;
+}
+
+body.is-training-fullscreen .host-tile video {
+    object-fit: contain;
+    background: #000000;
+}
+
+body.is-training-fullscreen .remote-scroll-button,
+body.is-training-fullscreen .secondary-button,
+body.is-training-fullscreen .icon-button {
+    border-color: #334155;
+    background: #111827;
+    color: #ffffff;
+}
+
+body.is-training-fullscreen .quality-control {
+    border-color: #334155;
+    background: #111827;
+    color: #cbd5e1;
+}
+
 .live-upload-form {
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: end;
@@ -523,6 +612,10 @@ h2 {
 
 .small-tile.online {
     background: #1f3a3d;
+}
+
+.local-preview {
+    outline: 2px solid rgba(20, 184, 166, 0.75);
 }
 
 .remote-label {
@@ -958,6 +1051,11 @@ body[data-account-role="administrador"] .new-master-only {
     .remote-scroll-button {
         width: 32px;
         height: 58px;
+    }
+
+    body.is-training-fullscreen .host-tile {
+        height: min(68dvh, calc(100dvh - 190px));
+        min-height: 200px;
     }
 
     .join-form {
