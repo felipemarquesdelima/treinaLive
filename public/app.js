@@ -19,6 +19,10 @@ const recordButton = document.querySelector("#recordButton");
 const streamQualityControl = document.querySelector("#streamQualityControl");
 const streamQualitySelect = document.querySelector("#streamQualitySelect");
 const fullscreenButton = document.querySelector("#fullscreenButton");
+const toggleWebcamsButton = document.querySelector("#toggleWebcamsButton");
+const stopPresentingButton = document.querySelector("#stopPresentingButton");
+const meetPresenterLabel = document.querySelector("#meetPresenterLabel");
+const meetTopParticipantCount = document.querySelector("#meetTopParticipantCount");
 const leaveButton = document.querySelector("#leaveButton");
 const localVideo = document.querySelector("#localVideo");
 const localRoleLabel = document.querySelector("#localRoleLabel");
@@ -30,6 +34,7 @@ const remoteGrid = document.querySelector("#remoteGrid");
 const remoteScrollPrev = document.querySelector("#remoteScrollPrev");
 const remoteScrollNext = document.querySelector("#remoteScrollNext");
 const videoLayout = document.querySelector(".video-layout");
+const mainVideoColumn = document.querySelector(".main-video-column");
 const hostTile = document.querySelector(".host-tile");
 const participantCount = document.querySelector("#participantCount");
 const participantList = document.querySelector("#participantList");
@@ -58,7 +63,6 @@ const roomPasswordInput = document.querySelector("#roomPasswordInput");
 const stageRoomName = document.querySelector("#stageRoomName");
 const tabButtons = document.querySelectorAll(".tab-button");
 const tabLive = document.querySelector("#tab-live");
-const tabCreateRoom = document.querySelector("#tab-create-room");
 const tabRecordings = document.querySelector("#tab-recordings");
 const tabMaterials = document.querySelector("#tab-materials");
 const tabUsers = document.querySelector("#tab-users");
@@ -79,6 +83,7 @@ let mediaRecorder = null;
 let recordedChunks = [];
 let activeRecordingLessonTitle = "";
 let presentationOwnerId = "";
+let remoteScreenShareActive = false;
 let pollStopped = true;
 let liveMaterialsRefreshId = null;
 let liveMaterialsSignature = "";
@@ -182,7 +187,7 @@ shareButton.addEventListener("click", async () => {
     }
 
     try {
-        if (!localStream) {
+        if (!hasLocalVideo()) {
             await startCamera();
         }
         screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
@@ -191,6 +196,7 @@ shareButton.addEventListener("click", async () => {
         }
         shareButton.textContent = "Parar espelhamento";
         publishActiveStream();
+        announceScreenShareState(true);
         screenStream.getVideoTracks()[0].addEventListener("ended", stopScreenShare);
     } catch (error) {
         alert("Compartilhamento de tela cancelado.");
@@ -242,6 +248,7 @@ recordButton.addEventListener("click", async () => {
 
 streamQualitySelect.addEventListener("change", requestStreamQuality);
 fullscreenButton.addEventListener("click", toggleTrainingFullscreen);
+stopPresentingButton?.addEventListener("click", stopScreenShare);
 ["fullscreenchange", "webkitfullscreenchange", "msfullscreenchange"].forEach((eventName) => {
     document.addEventListener(eventName, handleFullscreenChange);
 });
@@ -249,6 +256,13 @@ leaveButton.addEventListener("click", leaveRoom);
 remoteScrollPrev.addEventListener("click", () => scrollRemoteWebcams(-1));
 remoteScrollNext.addEventListener("click", () => scrollRemoteWebcams(1));
 remoteGrid.addEventListener("scroll", queueRemoteScrollControlsUpdate, { passive: true });
+toggleWebcamsButton?.addEventListener("click", () => {
+    const hidden = !body.classList.contains("hide-remote-cameras");
+    setRemoteWebcamsHidden(hidden);
+    if (currentUserCanHost()) {
+        sendSignal("", "webcams-visibility", { hidden });
+    }
+});
 refreshUsersButton.addEventListener("click", loadUsers);
 window.addEventListener("beforeunload", () => {
     if (session) {
@@ -359,6 +373,7 @@ function applyAuthUi() {
     // Controlar visibilidade dos paineis
     authPanel.hidden = Boolean(user);
     setLiveMode(Boolean(session));
+    updateWebcamToggleButton();
     
     logoutButton.hidden = !user;
     userStatus.textContent = user ? `${user.name} - ${roleLabel(user.role)}` : "Nao autenticado";
@@ -395,6 +410,8 @@ function setLiveMode(isLive) {
     body.classList.toggle("is-live", isLive);
     dashboardPanel.hidden = isLive || !auth?.user;
     livePanel.hidden = !isLive;
+    updateScreenPresentationClass();
+    updateMeetPresentationUi();
     queueStageVideoHeightSync();
 }
 
@@ -430,7 +447,8 @@ function updateRemoteScrollControls() {
         return;
     }
 
-    const hasWebcams = remoteGrid.children.length > 0;
+    const visibleTiles = [...remoteGrid.children].filter((child) => !child.hidden);
+    const hasWebcams = visibleTiles.length > 0;
     remoteStrip.classList.toggle("has-webcams", hasWebcams);
 
     if (!hasWebcams) {
@@ -448,11 +466,10 @@ function updateRemoteScrollControls() {
 }
 
 function showDashboardTab(tab) {
-    const hostOnlyTabs = new Set(["create-room", "users"]);
+    const hostOnlyTabs = new Set(["users"]);
     const selectedTab = hostOnlyTabs.has(tab) && !currentUserCanHost() ? "live" : tab;
     const contentsByTab = {
         live: tabLive,
-        "create-room": tabCreateRoom,
         recordings: tabRecordings,
         materials: tabMaterials,
         users: tabUsers
@@ -624,7 +641,7 @@ async function loadRooms() {
 
 function renderRooms(rooms) {
     if (!rooms.length) {
-        const hint = currentUserCanHost() ? "<br>Use a aba Criar sala para iniciar uma transmissão." : "";
+        const hint = currentUserCanHost() ? "<br>Use Nova reuniao para iniciar uma transmissao." : "";
         liveRoomsList.innerHTML = `<div class='empty-state'>Nenhuma aula ao vivo no momento.${hint}</div>`;
         return;
     }
@@ -758,6 +775,7 @@ async function closeLocalSession(options = {}) {
     peers.clear();
     participants.clear();
     presentationOwnerId = "";
+    remoteScreenShareActive = false;
     liveMaterialsSignature = "";
     liveMaterialsList.innerHTML = "";
     remoteGrid.innerHTML = "";
@@ -801,6 +819,7 @@ async function startCamera() {
             setLocalMuted(false);
         }
         updateCameraButton();
+        updateLocalCameraPreview();
         publishActiveStream();
         return localStream;
     } catch (error) {
@@ -874,8 +893,9 @@ function updateCameraButton() {
 }
 
 function updateLocalCameraPreview() {
-    let tile = remoteGrid.querySelector("[data-local-camera='true']");
-    const shouldShowPreview = Boolean(session && !isPresentationOwner() && hasLocalVideo());
+    let tile = document.querySelector("[data-local-camera='true']");
+    const shouldShowPreview = Boolean(session && hasLocalVideo() && (!isPresentationOwner() || screenStream));
+    updateScreenPresentationClass();
 
     if (!shouldShowPreview) {
         tile?.remove();
@@ -895,14 +915,34 @@ function updateLocalCameraPreview() {
                 <span>Sua webcam</span>
             </div>
         `;
-        remoteGrid.prepend(tile);
+    }
+
+    if (isPresentationOwner() && screenStream) {
+        mainVideoColumn.appendChild(tile);
+    } else if (tile.parentElement !== remoteGrid) {
+        remoteGrid.appendChild(tile);
     }
 
     const video = tile.querySelector("video");
     if (video.srcObject !== localStream) {
         video.srcObject = localStream;
     }
+    sortWebcamTiles();
     queueRemoteScrollControlsUpdate();
+}
+
+function updateWebcamToggleButton() {
+    if (!toggleWebcamsButton) {
+        return;
+    }
+    const hidden = body.classList.contains("hide-remote-cameras");
+    toggleWebcamsButton.textContent = hidden ? "Mostrar webcams" : "Ocultar webcams";
+}
+
+function setRemoteWebcamsHidden(hidden) {
+    body.classList.toggle("hide-remote-cameras", hidden);
+    updateWebcamToggleButton();
+    queueStageVideoHeightSync();
 }
 
 function setLocalMuted(shouldMute) {
@@ -959,6 +999,10 @@ async function handleSignal(message) {
         if (isPresentationOwner()) {
             createPeerConnection(peer, true);
             announcePresentationOwner(peer.id);
+            announceScreenShareState(Boolean(screenStream), peer.id);
+            if (body.classList.contains("hide-remote-cameras")) {
+                sendSignal(peer.id, "webcams-visibility", { hidden: true });
+            }
         } else if (getOutboundStream()) {
             createPeerConnection(peer, true);
         }
@@ -988,12 +1032,22 @@ async function handleSignal(message) {
 
     if (message.type === "presentation-owner") {
         presentationOwnerId = payload?.ownerId || "";
+        remoteScreenShareActive = false;
         updatePresentationUi();
         if (isPresentationOwner()) {
             publishActiveStream();
         } else {
             renderMainPresentation();
             await requestStreamQuality();
+        }
+        return;
+    }
+
+    if (message.type === "screen-share-state") {
+        if (message.from === presentationOwnerId || canParticipantPresent(peer)) {
+            remoteScreenShareActive = Boolean(payload?.active);
+            updateScreenPresentationClass();
+            updateMeetPresentationUi();
         }
         return;
     }
@@ -1013,6 +1067,13 @@ async function handleSignal(message) {
     if (message.type === "materials-updated") {
         if (!payload?.lessonTitle || payload.lessonTitle === session?.room) {
             await loadLiveMaterials({ force: true });
+        }
+        return;
+    }
+
+    if (message.type === "webcams-visibility") {
+        if (canParticipantPresent(peer)) {
+            setRemoteWebcamsHidden(Boolean(payload?.hidden));
         }
         return;
     }
@@ -1116,6 +1177,8 @@ function createRemoteTile(peer) {
         </div>
     `;
     remoteGrid.appendChild(tile);
+    sortWebcamTiles();
+    syncPresentationTileVisibility();
     queueRemoteScrollControlsUpdate();
     updateParticipants();
     return tile.querySelector("video");
@@ -1129,6 +1192,7 @@ function removePeer(peerId) {
     }
     participants.delete(peerId);
     document.querySelector(`[data-peer-id="${peerId}"]`)?.remove();
+    syncPresentationTileVisibility();
     queueRemoteScrollControlsUpdate();
     updateParticipants();
 }
@@ -1167,9 +1231,10 @@ function publishActiveStream() {
     const outboundStream = getOutboundStream();
     if (isPresentationOwner()) {
         localVideo.srcObject = getActivePresentationStream();
-    } else {
-        updateLocalCameraPreview();
     }
+    updateLocalCameraPreview();
+    updateScreenPresentationClass();
+    updateMeetPresentationUi();
     replaceTracks(outboundStream);
     peers.forEach((entry) => {
         if (entry.connection.signalingState === "stable") {
@@ -1274,6 +1339,7 @@ function stopScreenShare() {
     stopStream(screenStream);
     screenStream = null;
     shareButton.textContent = "Espelhar tela";
+    announceScreenShareState(false);
     if (isPresentationOwner()) {
         localVideo.srcObject = localStream;
     }
@@ -1394,6 +1460,9 @@ function stopStream(stream) {
 function updateParticipants() {
     const sorted = [...participants.values()].sort(compareParticipants);
     participantCount.textContent = `${sorted.length} online`;
+    if (meetTopParticipantCount) {
+        meetTopParticipantCount.textContent = sorted.length;
+    }
     participantList.innerHTML = sorted.map((participant) => {
         const isOwner = participant.id === presentationOwnerId;
         const canModerate = canModerateParticipant(participant);
@@ -1451,9 +1520,9 @@ function compareParticipants(a, b) {
 
 function rolePriority(role) {
     return {
+        host: 0,
         mestre: 0,
         administrador: 1,
-        host: 1,
         aluno: 2,
         student: 2
     }[role] ?? 3;
@@ -1478,6 +1547,8 @@ function nextPresentationOwnerId(leavingId = "") {
 
 function updatePresentationUi() {
     const owner = participants.get(presentationOwnerId);
+    updateScreenPresentationClass();
+    updateMeetPresentationUi(owner);
     localRoleLabel.textContent = owner ? "Tela principal" : "Tela principal";
     localNameLabel.textContent = owner ? owner.name : "Aguardando apresentador";
     requestScreenButton.hidden = !session || !currentUserCanHost() || isPresentationOwner();
@@ -1487,8 +1558,60 @@ function updatePresentationUi() {
     streamQualitySelect.disabled = !presentationOwnerId;
     updateCameraButton();
     updateLocalCameraPreview();
+    syncPresentationTileVisibility();
     updateParticipants();
     renderMainPresentation();
+}
+
+function syncPresentationTileVisibility() {
+    remoteGrid.querySelectorAll("[data-peer-id]").forEach((tile) => {
+        const isMainPresentation = Boolean(presentationOwnerId && tile.dataset.peerId === presentationOwnerId && !isPresentationOwner());
+        tile.hidden = isMainPresentation;
+    });
+    sortWebcamTiles();
+    queueRemoteScrollControlsUpdate();
+}
+
+function sortWebcamTiles() {
+    const tiles = [...remoteGrid.children];
+    tiles
+        .sort((a, b) => compareParticipants(tileParticipant(a), tileParticipant(b)))
+        .forEach((tile) => remoteGrid.appendChild(tile));
+}
+
+function tileParticipant(tile) {
+    if (tile.dataset.localCamera === "true") {
+        return {
+            id: session?.id || "",
+            name: auth?.user?.name || "Voce",
+            accountRole: auth?.user?.role || "aluno"
+        };
+    }
+    return participants.get(tile.dataset.peerId) || {
+        id: tile.dataset.peerId || "",
+        name: "",
+        accountRole: "aluno"
+    };
+}
+
+function updateScreenPresentationClass() {
+    const isSharingScreen = isPresentationOwner()
+        ? Boolean(screenStream)
+        : Boolean(remoteScreenShareActive || presentationOwnerId);
+    body.classList.toggle("is-screen-presenting", Boolean(session && presentationOwnerId && isSharingScreen));
+}
+
+function updateMeetPresentationUi(owner = participants.get(presentationOwnerId)) {
+    const presenting = Boolean(session && isPresentationOwner() && screenStream);
+    if (meetPresenterLabel) {
+        const name = owner?.name || auth?.user?.name || "Voce";
+        meetPresenterLabel.textContent = presenting
+            ? `${name} (Voce, apresentando)`
+            : (owner ? `${owner.name} esta apresentando` : "Aguardando apresentador");
+    }
+    if (stopPresentingButton) {
+        stopPresentingButton.hidden = !presenting;
+    }
 }
 
 function renderMainPresentation() {
@@ -1547,6 +1670,13 @@ function announcePresentationOwner(target = "") {
         return;
     }
     sendSignal(target, "presentation-owner", { ownerId: presentationOwnerId });
+}
+
+function announceScreenShareState(active, target = "") {
+    if (!session || !isPresentationOwner()) {
+        return;
+    }
+    sendSignal(target, "screen-share-state", { active });
 }
 
 function encodePayload(data) {

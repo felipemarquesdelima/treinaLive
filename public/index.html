@@ -46,7 +46,6 @@
         <section class="dashboard" id="dashboardPanel" hidden>
             <nav class="dashboard-tabs">
                 <button class="tab-button active" data-tab="live">Ao Vivo</button>
-                <button class="tab-button host-control" data-tab="create-room">Criar sala</button>
                 <button class="tab-button" data-tab="recordings">Aulas Gravadas</button>
                 <button class="tab-button" data-tab="materials">Materiais</button>
                 <button class="tab-button host-control" data-tab="users">Gerenciar usuários</button>
@@ -54,38 +53,55 @@
 
             <!-- TAB: AO VIVO -->
             <div class="tab-content" id="tab-live">
-                <div class="section-header">
-                    <h2>Aulas ao vivo</h2>
-                    <p>Salas disponíveis para participação</p>
+                <div class="home-hero">
+                    <div class="home-copy">
+                        <h1>Comece sua aula em poucos passos</h1>
+                        <p class="home-subtitle">Crie uma sala em poucos segundos. As salas abertas aparecem logo abaixo para os alunos entrarem.</p>
+                        <div class="home-actions">
+                            <form id="createRoomForm" class="create-room-form home-create-form host-control">
+                                <div class="form-group">
+                                    <label for="newRoomName">Nome da sala</label>
+                                    <input id="newRoomName" type="text" placeholder="Ex: Treinamento Anestesia" maxlength="40" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="roomVisibilityInput">Tipo</label>
+                                    <select id="roomVisibilityInput">
+                                        <option value="public">Publica</option>
+                                        <option value="private">Privada</option>
+                                    </select>
+                                </div>
+                                <div class="form-group" id="roomPasswordGroup" hidden>
+                                    <label for="roomPasswordInput">Senha</label>
+                                    <input id="roomPasswordInput" type="password" maxlength="40" autocomplete="new-password">
+                                </div>
+                                <button id="newMeetingButton" class="primary-button" type="submit">Nova reuniao</button>
+                            </form>
+                        </div>
+                </div>
+                    <div class="home-preview" aria-hidden="true">
+                        <div class="simple-steps-panel">
+                            <div>
+                                <strong>1</strong>
+                                <span>Escolha ou crie uma sala</span>
+                            </div>
+                            <div>
+                                <strong>2</strong>
+                                <span>Ligue camera, microfone ou tela</span>
+                            </div>
+                            <div>
+                                <strong>3</strong>
+                                <span>Compartilhe materiais e grave a aula</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="section-header section-header-row live-rooms-header">
+                    <div>
+                        <h2>Salas disponiveis</h2>
+                        <p>Escolha uma sala para participar agora.</p>
+                    </div>
                 </div>
                 <div id="liveRoomsList" class="rooms-grid"></div>
-            </div>
-
-            <!-- TAB: CRIAR SALA -->
-            <div class="tab-content host-control" id="tab-create-room" hidden>
-                <div class="section-header">
-                    <h2>Criar nova sala ao vivo</h2>
-                    <p>Defina o nome e a privacidade da sala</p>
-                </div>
-
-                <form id="createRoomForm" class="create-room-form">
-                    <div class="form-group">
-                        <label for="newRoomName">Nome da sala</label>
-                        <input id="newRoomName" type="text" placeholder="Ex: Treinamento Anestesia" maxlength="40" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="roomVisibilityInput">Tipo de sala</label>
-                        <select id="roomVisibilityInput">
-                            <option value="public">Publica</option>
-                            <option value="private">Privada</option>
-                        </select>
-                    </div>
-                    <div class="form-group" id="roomPasswordGroup" hidden>
-                        <label for="roomPasswordInput">Senha da sala</label>
-                        <input id="roomPasswordInput" type="password" maxlength="40" autocomplete="new-password">
-                    </div>
-                    <button class="primary-button" type="submit">Criar sala</button>
-                </form>
             </div>
 
             <!-- TAB: AULAS GRAVADAS -->
@@ -170,6 +186,18 @@
 
         <!-- SALA AO VIVO -->
         <section class="live-stage" id="livePanel" hidden>
+            <div class="meet-presenting-bar" aria-live="polite">
+                <div class="meet-presenter">
+                    <span class="meet-presenter-icon" aria-hidden="true">□</span>
+                    <strong id="meetPresenterLabel">Voce esta apresentando</strong>
+                </div>
+                <button id="stopPresentingButton" class="meet-stop-button host-control" type="button">Parar apresentacao</button>
+                <div class="meet-top-count" aria-label="Participantes online">
+                    <span class="meet-avatar-dot" aria-hidden="true"></span>
+                    <strong id="meetTopParticipantCount">0</strong>
+                </div>
+            </div>
+
             <div class="stage-header">
                 <div>
                     <p class="eyebrow">Treinamento ao vivo</p>
@@ -191,6 +219,7 @@
                         </select>
                     </label>
                     <button id="fullscreenButton" class="secondary-button" title="Alternar tela cheia">Tela cheia</button>
+                    <button id="toggleWebcamsButton" class="secondary-button" title="Ocultar ou mostrar webcams sobre a tela">Ocultar webcams</button>
                     <button id="leaveButton" class="secondary-button">Sair da sala</button>
                 </div>
             </div>
