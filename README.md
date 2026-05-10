@@ -47,6 +47,7 @@ Para rodar localmente:
 - JDK instalado. O projeto funciona com Java 21 ou superior.
 - Navegador moderno com suporte a WebRTC e MediaRecorder.
 - Permissão do navegador para câmera, microfone e compartilhamento de tela.
+- No iOS/iPadOS, camera e microfone so funcionam em contexto seguro. Se abrir pelo celular usando `http://IP_DO_PC:8080`, o Safari/Chrome do iPhone bloqueia a permissao. Use um endereco `https://` ou um tunel HTTPS para testar no aparelho.
 
 Para rodar com Docker:
 
@@ -79,6 +80,22 @@ Se quiser usar outra porta, defina a variável `PORT` antes de iniciar:
 $env:PORT = "8081"
 java -cp bin App
 ```
+
+## Testar Camera no iOS com Cloudflare Tunnel
+
+No iPhone/iPad, a camera e o microfone so aparecem para o navegador quando a pagina esta em um contexto seguro. `localhost` funciona no proprio computador, mas `http://IP_DO_PC:8080` aberto no iOS costuma bloquear a permissao. Para testar no aparelho, mantenha o servidor Java rodando e abra um tunel HTTPS:
+
+```powershell
+cloudflared tunnel --url http://localhost:8080 --no-autoupdate --ha-connections 1
+```
+
+O terminal vai mostrar um endereco parecido com:
+
+```text
+https://alguma-coisa.trycloudflare.com
+```
+
+Abra esse endereco no Safari ou Chrome do iOS, faca login e permita camera/microfone quando o navegador pedir. O link muda a cada vez que o tunel e recriado, entao copie sempre o endereco novo exibido pelo `cloudflared`.
 
 ## Como Inicializar com Docker
 

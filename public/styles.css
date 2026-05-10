@@ -510,6 +510,14 @@ h2 {
     background: #000000;
 }
 
+#localVideo:fullscreen,
+#localVideo:-webkit-full-screen {
+    width: 100vw;
+    height: 100vh;
+    object-fit: contain;
+    background: #000000;
+}
+
 .live-stage:fullscreen {
     width: 100%;
     height: 100%;
@@ -1803,5 +1811,906 @@ body[data-account-role="administrador"] .new-master-only {
 
     .download-link {
         text-align: center;
+    }
+}
+
+body.is-live.is-training-fullscreen .live-stage {
+    min-height: 100dvh !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+}
+
+body.is-live.is-training-fullscreen .video-layout {
+    width: 100vw !important;
+    height: 100dvh !important;
+    min-height: 100dvh !important;
+    padding-right: 0 !important;
+    align-items: stretch !important;
+}
+
+body.is-live.is-training-fullscreen .main-video-column {
+    width: 100vw !important;
+    height: 100dvh !important;
+    min-height: 100dvh !important;
+    align-items: stretch !important;
+    justify-content: center !important;
+}
+
+body.is-live.is-training-fullscreen .host-tile,
+body.is-live.is-training-fullscreen.is-screen-presenting .host-tile,
+body.is-live.is-training-fullscreen.is-screen-presenting.hide-remote-cameras .host-tile {
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 1 !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    max-height: none !important;
+    min-height: 0 !important;
+    aspect-ratio: auto !important;
+}
+
+body.is-live.is-training-fullscreen .host-tile video {
+    width: 100vw !important;
+    height: 100dvh !important;
+    object-fit: contain !important;
+}
+
+body.is-live.is-training-fullscreen.is-screen-presenting .meet-presenting-bar,
+body.is-live.is-training-fullscreen.is-screen-presenting .stage-header,
+body.is-live.is-training-fullscreen.is-screen-presenting .local-preview,
+body.is-live.is-training-fullscreen.is-screen-presenting .student-strip {
+    display: none !important;
+}
+
+body.is-live.is-screen-presenting {
+    --presentation-top-safe: 52px;
+    --presentation-bottom-safe: 112px;
+    --presentation-side-safe: 0px;
+}
+
+body.is-live.is-screen-presenting .host-tile,
+body.is-live.is-screen-presenting.hide-remote-cameras .host-tile,
+body.is-live.is-training-fullscreen.is-screen-presenting .host-tile,
+body.is-live.is-training-fullscreen.is-screen-presenting.hide-remote-cameras .host-tile {
+    inset: var(--presentation-top-safe) var(--presentation-side-safe) var(--presentation-bottom-safe) var(--presentation-side-safe) !important;
+    width: auto !important;
+    height: auto !important;
+}
+
+body.is-live.is-screen-presenting .host-tile video,
+body.is-live.is-training-fullscreen.is-screen-presenting .host-tile video {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: contain !important;
+}
+
+body.is-live.is-screen-presenting .meet-presenting-bar {
+    top: 4px !important;
+}
+
+body.is-live.is-screen-presenting .stage-header {
+    bottom: 10px !important;
+}
+
+body.is-live.is-screen-presenting .local-preview {
+    bottom: calc(var(--presentation-bottom-safe) + 12px) !important;
+}
+
+@media (max-width: 860px) {
+    body.is-live.is-screen-presenting {
+        --presentation-top-safe: 50px;
+        --presentation-bottom-safe: 104px;
+    }
+}
+
+@media (max-width: 540px) {
+    body.is-live.is-screen-presenting {
+        --presentation-top-safe: 50px;
+        --presentation-bottom-safe: 98px;
+    }
+}
+
+/* Final presentation zoom: full stage restored, shared screen drawn smaller. */
+body.is-live.is-screen-presenting {
+    --presentation-zoom: 0.84;
+}
+
+body.is-live.is-screen-presenting .host-tile,
+body.is-live.is-screen-presenting.hide-remote-cameras .host-tile,
+body.is-live.is-training-fullscreen.is-screen-presenting .host-tile,
+body.is-live.is-training-fullscreen.is-screen-presenting.hide-remote-cameras .host-tile {
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    display: grid !important;
+    place-items: center !important;
+    background: #000000 !important;
+}
+
+body.is-live.is-screen-presenting .host-tile video,
+body.is-live.is-training-fullscreen.is-screen-presenting .host-tile video {
+    width: calc(100vw * var(--presentation-zoom)) !important;
+    height: calc(100dvh * var(--presentation-zoom)) !important;
+    object-fit: contain !important;
+    background: #000000 !important;
+}
+
+/* Final side-by-side presentation: shared screen and webcam never overlap. */
+body.is-live.is-screen-presenting {
+    --presentation-zoom: 0.84;
+    --presentation-webcam-rail: clamp(180px, 17vw, 280px);
+    --presentation-webcam-gap: 18px;
+    --presentation-stage-width: calc(100vw - var(--presentation-webcam-rail) - var(--presentation-webcam-gap));
+}
+
+body.is-live.is-screen-presenting.hide-remote-cameras {
+    --presentation-webcam-rail: 0px;
+    --presentation-webcam-gap: 0px;
+    --presentation-stage-width: 100vw;
+}
+
+body.is-live.is-screen-presenting .host-tile,
+body.is-live.is-screen-presenting.hide-remote-cameras .host-tile,
+body.is-live.is-training-fullscreen.is-screen-presenting .host-tile,
+body.is-live.is-training-fullscreen.is-screen-presenting.hide-remote-cameras .host-tile {
+    inset: 0 auto 0 0 !important;
+    width: var(--presentation-stage-width) !important;
+    height: 100dvh !important;
+    display: grid !important;
+    place-items: center !important;
+    background: #000000 !important;
+}
+
+body.is-live.is-screen-presenting .host-tile video,
+body.is-live.is-training-fullscreen.is-screen-presenting .host-tile video {
+    width: calc(var(--presentation-stage-width) * var(--presentation-zoom)) !important;
+    height: calc(100dvh * var(--presentation-zoom)) !important;
+    object-fit: contain !important;
+    background: #000000 !important;
+}
+
+body.is-live.is-screen-presenting .local-preview,
+body.is-live.is-training-fullscreen.is-screen-presenting .local-preview {
+    display: grid !important;
+    position: fixed !important;
+    top: 84px !important;
+    right: 18px !important;
+    bottom: auto !important;
+    width: var(--presentation-webcam-rail) !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    aspect-ratio: 16 / 9 !important;
+    border: 0 !important;
+    border-radius: 12px !important;
+    z-index: 32 !important;
+    overflow: hidden !important;
+}
+
+body.is-live.is-screen-presenting.hide-remote-cameras .local-preview {
+    display: none !important;
+}
+
+@media (max-width: 860px) {
+    body.is-live.is-screen-presenting {
+        --presentation-webcam-rail: clamp(116px, 26vw, 160px);
+        --presentation-webcam-gap: 10px;
+    }
+
+body.is-live.is-screen-presenting .local-preview,
+body.is-live.is-training-fullscreen.is-screen-presenting .local-preview {
+        top: 62px !important;
+        right: 8px !important;
+    }
+}
+
+/* Final webcam rail for every role: presenter, admin and student use the same layout. */
+body.is-live.is-screen-presenting {
+    --presentation-webcam-rail: 0px;
+    --presentation-webcam-gap: 0px;
+    --presentation-stage-width: 100vw;
+}
+
+body.is-live.is-screen-presenting.has-side-webcams:not(.hide-remote-cameras) {
+    --presentation-webcam-rail: clamp(180px, 17vw, 280px);
+    --presentation-webcam-gap: 18px;
+    --presentation-stage-width: calc(100vw - var(--presentation-webcam-rail) - var(--presentation-webcam-gap));
+}
+
+body.is-live.is-screen-presenting .host-tile,
+body.is-live.is-screen-presenting.hide-remote-cameras .host-tile,
+body.is-live.is-training-fullscreen.is-screen-presenting .host-tile,
+body.is-live.is-training-fullscreen.is-screen-presenting.hide-remote-cameras .host-tile {
+    inset: 0 auto 0 0 !important;
+    width: var(--presentation-stage-width) !important;
+    height: 100dvh !important;
+    display: grid !important;
+    place-items: center !important;
+    background: #000000 !important;
+}
+
+body.is-live.is-screen-presenting .host-tile video,
+body.is-live.is-training-fullscreen.is-screen-presenting .host-tile video {
+    width: calc(var(--presentation-stage-width) * var(--presentation-zoom)) !important;
+    height: calc(100dvh * var(--presentation-zoom)) !important;
+    object-fit: contain !important;
+    background: #000000 !important;
+}
+
+body.is-live.is-screen-presenting.has-side-webcams:not(.hide-remote-cameras) .student-strip,
+body.is-live.is-training-fullscreen.is-screen-presenting.has-side-webcams:not(.hide-remote-cameras) .student-strip {
+    display: grid !important;
+    position: fixed !important;
+    top: 84px !important;
+    right: 18px !important;
+    bottom: 96px !important;
+    z-index: 32 !important;
+    width: var(--presentation-webcam-rail) !important;
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+    padding: 0 !important;
+    background: transparent !important;
+}
+
+body.is-live.is-screen-presenting .student-strip .remote-scroll-button {
+    display: none !important;
+}
+
+body.is-live.is-screen-presenting .student-strip .student-grid {
+    display: grid !important;
+    grid-auto-flow: row !important;
+    grid-auto-rows: auto !important;
+    grid-auto-columns: auto !important;
+    gap: 10px !important;
+    width: 100% !important;
+    max-height: 100% !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    padding: 0 !important;
+}
+
+body.is-live.is-screen-presenting .student-strip .video-tile,
+body.is-live.is-screen-presenting .student-strip .local-preview,
+body.is-live.is-training-fullscreen.is-screen-presenting .student-strip .local-preview {
+    position: relative !important;
+    inset: auto !important;
+    display: grid !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    min-height: 0 !important;
+    aspect-ratio: 16 / 9 !important;
+    border: 0 !important;
+    border-radius: 12px !important;
+    overflow: hidden !important;
+}
+
+body.is-live.is-screen-presenting.hide-remote-cameras .student-strip,
+body.is-live.is-screen-presenting.hide-remote-cameras .local-preview {
+    display: none !important;
+}
+
+@media (max-width: 860px) {
+    body.is-live.is-screen-presenting.has-side-webcams:not(.hide-remote-cameras) {
+        --presentation-webcam-rail: clamp(116px, 26vw, 160px);
+        --presentation-webcam-gap: 10px;
+    }
+
+    body.is-live.is-screen-presenting.has-side-webcams:not(.hide-remote-cameras) .student-strip,
+    body.is-live.is-training-fullscreen.is-screen-presenting.has-side-webcams:not(.hide-remote-cameras) .student-strip {
+        top: 62px !important;
+        right: 8px !important;
+        bottom: 96px !important;
+    }
+}
+
+/* Final webcam rail for every role: presenter, admin and student use the same layout. */
+body.is-live.is-screen-presenting {
+    --presentation-webcam-rail: 0px;
+    --presentation-webcam-gap: 0px;
+    --presentation-stage-width: 100vw;
+}
+
+body.is-live.is-screen-presenting.has-side-webcams:not(.hide-remote-cameras) {
+    --presentation-webcam-rail: clamp(180px, 17vw, 280px);
+    --presentation-webcam-gap: 18px;
+    --presentation-stage-width: calc(100vw - var(--presentation-webcam-rail) - var(--presentation-webcam-gap));
+}
+
+body.is-live.is-screen-presenting .host-tile,
+body.is-live.is-screen-presenting.hide-remote-cameras .host-tile,
+body.is-live.is-training-fullscreen.is-screen-presenting .host-tile,
+body.is-live.is-training-fullscreen.is-screen-presenting.hide-remote-cameras .host-tile {
+    inset: 0 auto 0 0 !important;
+    width: var(--presentation-stage-width) !important;
+    height: 100dvh !important;
+    display: grid !important;
+    place-items: center !important;
+    background: #000000 !important;
+}
+
+body.is-live.is-screen-presenting .host-tile video,
+body.is-live.is-training-fullscreen.is-screen-presenting .host-tile video {
+    width: calc(var(--presentation-stage-width) * var(--presentation-zoom)) !important;
+    height: calc(100dvh * var(--presentation-zoom)) !important;
+    object-fit: contain !important;
+    background: #000000 !important;
+}
+
+body.is-live.is-screen-presenting.has-side-webcams:not(.hide-remote-cameras) .student-strip,
+body.is-live.is-training-fullscreen.is-screen-presenting.has-side-webcams:not(.hide-remote-cameras) .student-strip {
+    display: grid !important;
+    position: fixed !important;
+    top: 84px !important;
+    right: 18px !important;
+    bottom: 96px !important;
+    z-index: 32 !important;
+    width: var(--presentation-webcam-rail) !important;
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+    padding: 0 !important;
+    background: transparent !important;
+}
+
+body.is-live.is-screen-presenting .student-strip .remote-scroll-button {
+    display: none !important;
+}
+
+body.is-live.is-screen-presenting .student-strip .student-grid {
+    display: grid !important;
+    grid-auto-flow: row !important;
+    grid-auto-rows: auto !important;
+    grid-auto-columns: auto !important;
+    gap: 10px !important;
+    width: 100% !important;
+    max-height: 100% !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    padding: 0 !important;
+}
+
+body.is-live.is-screen-presenting .student-strip .video-tile,
+body.is-live.is-screen-presenting .student-strip .local-preview,
+body.is-live.is-training-fullscreen.is-screen-presenting .student-strip .local-preview {
+    position: relative !important;
+    inset: auto !important;
+    display: grid !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    min-height: 0 !important;
+    aspect-ratio: 16 / 9 !important;
+    border: 0 !important;
+    border-radius: 12px !important;
+    overflow: hidden !important;
+}
+
+body.is-live.is-screen-presenting.hide-remote-cameras .student-strip,
+body.is-live.is-screen-presenting.hide-remote-cameras .local-preview {
+    display: none !important;
+}
+
+@media (max-width: 860px) {
+    body.is-live.is-screen-presenting.has-side-webcams:not(.hide-remote-cameras) {
+        --presentation-webcam-rail: clamp(116px, 26vw, 160px);
+        --presentation-webcam-gap: 10px;
+    }
+
+    body.is-live.is-screen-presenting.has-side-webcams:not(.hide-remote-cameras) .student-strip,
+    body.is-live.is-training-fullscreen.is-screen-presenting.has-side-webcams:not(.hide-remote-cameras) .student-strip {
+        top: 62px !important;
+        right: 8px !important;
+        bottom: 96px !important;
+    }
+}
+
+/* Final presentation zoom: full stage restored, shared screen drawn smaller. */
+body.is-live.is-screen-presenting {
+    --presentation-zoom: 0.84;
+}
+
+body.is-live.is-screen-presenting .host-tile,
+body.is-live.is-screen-presenting.hide-remote-cameras .host-tile,
+body.is-live.is-training-fullscreen.is-screen-presenting .host-tile,
+body.is-live.is-training-fullscreen.is-screen-presenting.hide-remote-cameras .host-tile {
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    display: grid !important;
+    place-items: center !important;
+    background: #000000 !important;
+}
+
+body.is-live.is-screen-presenting .host-tile video,
+body.is-live.is-training-fullscreen.is-screen-presenting .host-tile video {
+    width: calc(100vw * var(--presentation-zoom)) !important;
+    height: calc(100dvh * var(--presentation-zoom)) !important;
+    object-fit: contain !important;
+    background: #000000 !important;
+}
+
+/* Final presentation zoom: use the full stage again, but draw the shared screen smaller. */
+body.is-live.is-screen-presenting {
+    --presentation-zoom: 0.84;
+}
+
+body.is-live.is-screen-presenting .host-tile,
+body.is-live.is-screen-presenting.hide-remote-cameras .host-tile,
+body.is-live.is-training-fullscreen.is-screen-presenting .host-tile,
+body.is-live.is-training-fullscreen.is-screen-presenting.hide-remote-cameras .host-tile {
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    display: grid !important;
+    place-items: center !important;
+    background: #000000 !important;
+}
+
+body.is-live.is-screen-presenting .host-tile video,
+body.is-live.is-training-fullscreen.is-screen-presenting .host-tile video {
+    width: calc(100vw * var(--presentation-zoom)) !important;
+    height: calc(100dvh * var(--presentation-zoom)) !important;
+    object-fit: contain !important;
+    background: #000000 !important;
+}
+
+body.is-live.is-screen-presenting {
+    --presentation-top-safe: 52px;
+    --presentation-bottom-safe: 112px;
+    --presentation-side-safe: 0px;
+}
+
+body.is-live.is-screen-presenting .host-tile,
+body.is-live.is-screen-presenting.hide-remote-cameras .host-tile,
+body.is-live.is-training-fullscreen.is-screen-presenting .host-tile,
+body.is-live.is-training-fullscreen.is-screen-presenting.hide-remote-cameras .host-tile {
+    inset: var(--presentation-top-safe) var(--presentation-side-safe) var(--presentation-bottom-safe) var(--presentation-side-safe) !important;
+    width: auto !important;
+    height: auto !important;
+}
+
+body.is-live.is-screen-presenting .host-tile video,
+body.is-live.is-training-fullscreen.is-screen-presenting .host-tile video {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: contain !important;
+}
+
+body.is-live.is-screen-presenting .meet-presenting-bar {
+    top: 4px !important;
+}
+
+body.is-live.is-screen-presenting .stage-header {
+    bottom: 10px !important;
+}
+
+body.is-live.is-screen-presenting .local-preview {
+    bottom: calc(var(--presentation-bottom-safe) + 12px) !important;
+}
+
+@media (max-width: 860px) {
+    body.is-live.is-screen-presenting {
+        --presentation-top-safe: 50px;
+        --presentation-bottom-safe: 104px;
+    }
+}
+
+@media (max-width: 540px) {
+    body.is-live.is-screen-presenting {
+        --presentation-top-safe: 50px;
+        --presentation-bottom-safe: 98px;
+    }
+}
+
+body.is-live.is-training-fullscreen .stage-header {
+    left: 50%;
+    right: auto;
+    bottom: 14px;
+    z-index: 20;
+    width: min(960px, calc(100vw - 24px));
+    grid-template-columns: 1fr;
+    justify-items: center;
+    transform: translateX(-50%);
+}
+
+body.is-live.is-training-fullscreen .stage-header > div:first-child {
+    display: none;
+}
+
+body.is-live.is-training-fullscreen .live-actions {
+    grid-column: 1;
+    max-width: 100%;
+    justify-content: center;
+}
+
+body.is-live.is-training-fullscreen .meet-presenting-bar {
+    top: 8px;
+    left: 50%;
+    right: auto;
+    z-index: 20;
+    width: min(960px, calc(100vw - 24px));
+    transform: translateX(-50%);
+}
+
+body.is-live.is-training-fullscreen.is-screen-presenting .local-preview {
+    right: 16px;
+    top: 64px;
+}
+
+body.is-live.is-training-fullscreen.is-screen-presenting .student-strip {
+    right: 16px;
+    top: 300px;
+}
+
+body.is-live.is-screen-presenting {
+    --webcam-rail-width: 0px !important;
+    --webcam-rail-right: 0px !important;
+    overflow: hidden !important;
+}
+
+body.is-live.is-screen-presenting .live-stage {
+    min-height: 100dvh !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+}
+
+body.is-live.is-screen-presenting .video-layout,
+body.is-live.is-screen-presenting.hide-remote-cameras .video-layout {
+    width: 100vw !important;
+    height: 100dvh !important;
+    min-height: 100dvh !important;
+    padding-right: 0 !important;
+    align-items: stretch !important;
+}
+
+body.is-live.is-screen-presenting .main-video-column {
+    width: 100vw !important;
+    height: 100dvh !important;
+    min-height: 100dvh !important;
+    align-items: stretch !important;
+    justify-content: center !important;
+}
+
+body.is-live.is-screen-presenting .host-tile,
+body.is-live.is-screen-presenting.hide-remote-cameras .host-tile {
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 1 !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    max-height: none !important;
+    min-height: 0 !important;
+    border-radius: 0 !important;
+    aspect-ratio: auto !important;
+}
+
+body.is-live.is-screen-presenting .host-tile video {
+    width: 100vw !important;
+    height: 100dvh !important;
+    object-fit: contain !important;
+    background: #000000 !important;
+}
+
+body.is-live.is-screen-presenting .meet-presenting-bar {
+    left: 12px !important;
+    right: 12px !important;
+    top: 8px !important;
+    z-index: 30 !important;
+    opacity: 1;
+    transition: opacity 0.15s ease;
+}
+
+body.is-live.is-screen-presenting .meet-presenting-bar:hover,
+body.is-live.is-screen-presenting .stage-header:hover {
+    opacity: 1;
+}
+
+body.is-live.is-screen-presenting .stage-header {
+    left: 50% !important;
+    right: auto !important;
+    bottom: 14px !important;
+    z-index: 30 !important;
+    width: min(960px, calc(100vw - 24px)) !important;
+    grid-template-columns: 1fr !important;
+    justify-items: center !important;
+    opacity: 1;
+    transform: translateX(-50%) !important;
+    transition: opacity 0.15s ease;
+}
+
+body.is-live.is-screen-presenting .stage-header > div:first-child,
+body.is-live.is-screen-presenting .student-strip {
+    display: none !important;
+}
+
+body.is-live.is-screen-presenting .local-preview {
+    display: grid !important;
+    right: 18px !important;
+    top: auto !important;
+    bottom: 96px !important;
+    z-index: 32 !important;
+    width: min(236px, 18vw) !important;
+    min-width: 150px !important;
+    border-radius: 12px !important;
+}
+
+body.is-live.is-screen-presenting .live-actions {
+    grid-column: 1 !important;
+    max-width: 100% !important;
+    justify-content: center !important;
+}
+
+body.is-live.is-training-fullscreen.is-screen-presenting .meet-presenting-bar {
+    display: flex !important;
+}
+
+body.is-live.is-training-fullscreen.is-screen-presenting .stage-header {
+    display: grid !important;
+}
+
+body.is-live.is-training-fullscreen.is-screen-presenting .local-preview {
+    display: grid !important;
+}
+
+body.is-live.is-training-fullscreen.is-screen-presenting .student-strip {
+    display: none !important;
+}
+
+/* Final presentation zoom: full stage restored, shared screen drawn smaller. */
+body.is-live.is-screen-presenting {
+    --presentation-zoom: 0.84;
+}
+
+body.is-live.is-screen-presenting .host-tile,
+body.is-live.is-screen-presenting.hide-remote-cameras .host-tile,
+body.is-live.is-training-fullscreen.is-screen-presenting .host-tile,
+body.is-live.is-training-fullscreen.is-screen-presenting.hide-remote-cameras .host-tile {
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    display: grid !important;
+    place-items: center !important;
+    background: #000000 !important;
+}
+
+body.is-live.is-screen-presenting .host-tile video,
+body.is-live.is-training-fullscreen.is-screen-presenting .host-tile video {
+    width: calc(100vw * var(--presentation-zoom)) !important;
+    height: calc(100dvh * var(--presentation-zoom)) !important;
+    object-fit: contain !important;
+    background: #000000 !important;
+}
+
+/* Final side-by-side presentation: shared screen and webcam never overlap. */
+body.is-live.is-screen-presenting {
+    --presentation-zoom: 0.84;
+    --presentation-webcam-rail: clamp(180px, 17vw, 280px);
+    --presentation-webcam-gap: 18px;
+    --presentation-stage-width: calc(100vw - var(--presentation-webcam-rail) - var(--presentation-webcam-gap));
+}
+
+body.is-live.is-screen-presenting.hide-remote-cameras {
+    --presentation-webcam-rail: 0px;
+    --presentation-webcam-gap: 0px;
+    --presentation-stage-width: 100vw;
+}
+
+body.is-live.is-screen-presenting .host-tile,
+body.is-live.is-screen-presenting.hide-remote-cameras .host-tile,
+body.is-live.is-training-fullscreen.is-screen-presenting .host-tile,
+body.is-live.is-training-fullscreen.is-screen-presenting.hide-remote-cameras .host-tile {
+    inset: 0 auto 0 0 !important;
+    width: var(--presentation-stage-width) !important;
+    height: 100dvh !important;
+    display: grid !important;
+    place-items: center !important;
+    background: #000000 !important;
+}
+
+body.is-live.is-screen-presenting .host-tile video,
+body.is-live.is-training-fullscreen.is-screen-presenting .host-tile video {
+    width: calc(var(--presentation-stage-width) * var(--presentation-zoom)) !important;
+    height: calc(100dvh * var(--presentation-zoom)) !important;
+    object-fit: contain !important;
+    background: #000000 !important;
+}
+
+body.is-live.is-screen-presenting .local-preview,
+body.is-live.is-training-fullscreen.is-screen-presenting .local-preview {
+    display: grid !important;
+    position: fixed !important;
+    top: 84px !important;
+    right: 18px !important;
+    bottom: auto !important;
+    width: var(--presentation-webcam-rail) !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    aspect-ratio: 16 / 9 !important;
+    border: 0 !important;
+    border-radius: 12px !important;
+    z-index: 32 !important;
+    overflow: hidden !important;
+}
+
+body.is-live.is-screen-presenting.hide-remote-cameras .local-preview {
+    display: none !important;
+}
+
+@media (max-width: 860px) {
+    body.is-live.is-screen-presenting {
+        --presentation-webcam-rail: clamp(116px, 26vw, 160px);
+        --presentation-webcam-gap: 10px;
+    }
+
+    body.is-live.is-screen-presenting .local-preview,
+    body.is-live.is-training-fullscreen.is-screen-presenting .local-preview {
+        top: 62px !important;
+        right: 8px !important;
+    }
+}
+
+/* Definitive live layout: keep the webcam rail beside the stream on one solid background. */
+body.is-live,
+body.is-live .app-shell,
+body.is-live .live-stage {
+    background: #171a20 !important;
+}
+
+body.is-live .host-tile,
+body.is-live .host-tile video {
+    background: #171a20 !important;
+}
+
+body.is-live.is-screen-presenting {
+    --presentation-bg: #171a20;
+    --presentation-pad: 18px;
+    --presentation-top: 58px;
+    --presentation-bottom: 104px;
+    --presentation-gap: 16px;
+    --presentation-webcam-rail: clamp(190px, 18vw, 300px);
+    --presentation-stage-right: calc(var(--presentation-pad) + var(--presentation-webcam-rail) + var(--presentation-gap));
+    overflow: hidden !important;
+    background: var(--presentation-bg) !important;
+}
+
+body.is-live.is-screen-presenting.hide-remote-cameras {
+    --presentation-webcam-rail: 0px;
+    --presentation-gap: 0px;
+    --presentation-stage-right: var(--presentation-pad);
+}
+
+body.is-live.is-screen-presenting .live-stage {
+    min-height: 100dvh !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    background: var(--presentation-bg) !important;
+}
+
+body.is-live.is-screen-presenting .video-layout,
+body.is-live.is-screen-presenting.hide-remote-cameras .video-layout {
+    position: fixed !important;
+    inset: 0 !important;
+    display: block !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    min-height: 100dvh !important;
+    padding: 0 !important;
+    background: var(--presentation-bg) !important;
+}
+
+body.is-live.is-screen-presenting .main-video-column {
+    display: block !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    min-height: 0 !important;
+}
+
+body.is-live.is-screen-presenting .host-tile,
+body.is-live.is-screen-presenting.hide-remote-cameras .host-tile,
+body.is-live.is-training-fullscreen.is-screen-presenting .host-tile,
+body.is-live.is-training-fullscreen.is-screen-presenting.hide-remote-cameras .host-tile {
+    position: fixed !important;
+    inset: var(--presentation-top) var(--presentation-stage-right) var(--presentation-bottom) var(--presentation-pad) !important;
+    display: grid !important;
+    place-items: center !important;
+    width: auto !important;
+    height: auto !important;
+    max-height: none !important;
+    min-height: 0 !important;
+    border-radius: 8px !important;
+    aspect-ratio: auto !important;
+    background: var(--presentation-bg) !important;
+    box-shadow: none !important;
+}
+
+body.is-live.is-screen-presenting.hide-remote-cameras .host-tile,
+body.is-live.is-training-fullscreen.is-screen-presenting.hide-remote-cameras .host-tile {
+    right: var(--presentation-pad) !important;
+}
+
+body.is-live.is-screen-presenting .host-tile video,
+body.is-live.is-training-fullscreen.is-screen-presenting .host-tile video {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: contain !important;
+    background: var(--presentation-bg) !important;
+}
+
+body.is-live.is-screen-presenting.has-side-webcams:not(.hide-remote-cameras) .student-strip,
+body.is-live.is-training-fullscreen.is-screen-presenting.has-side-webcams:not(.hide-remote-cameras) .student-strip {
+    position: fixed !important;
+    top: var(--presentation-top) !important;
+    right: var(--presentation-pad) !important;
+    bottom: var(--presentation-bottom) !important;
+    z-index: 32 !important;
+    display: grid !important;
+    width: var(--presentation-webcam-rail) !important;
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+    padding: 0 !important;
+    background: transparent !important;
+}
+
+body.is-live.is-screen-presenting .student-strip .remote-scroll-button {
+    display: none !important;
+}
+
+body.is-live.is-screen-presenting .student-strip .student-grid,
+body.is-live.is-training-fullscreen.is-screen-presenting .student-strip .student-grid {
+    display: grid !important;
+    width: 100% !important;
+    max-height: 100% !important;
+    grid-auto-flow: row !important;
+    grid-auto-rows: auto !important;
+    grid-auto-columns: auto !important;
+    gap: 10px !important;
+    padding: 0 !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+}
+
+body.is-live.is-screen-presenting .student-strip .video-tile,
+body.is-live.is-screen-presenting .student-strip .local-preview,
+body.is-live.is-training-fullscreen.is-screen-presenting .student-strip .video-tile,
+body.is-live.is-training-fullscreen.is-screen-presenting .student-strip .local-preview {
+    position: relative !important;
+    inset: auto !important;
+    display: grid !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    min-height: 0 !important;
+    aspect-ratio: 16 / 9 !important;
+    border: 0 !important;
+    border-radius: 8px !important;
+    overflow: hidden !important;
+    background: #22262d !important;
+    box-shadow: none !important;
+}
+
+body.is-live.is-screen-presenting .student-strip .video-tile video,
+body.is-live.is-training-fullscreen.is-screen-presenting .student-strip .video-tile video {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+    background: #22262d !important;
+}
+
+body.is-live.is-screen-presenting.hide-remote-cameras .student-strip,
+body.is-live.is-screen-presenting.hide-remote-cameras .local-preview {
+    display: none !important;
+}
+
+@media (max-width: 860px) {
+    body.is-live.is-screen-presenting {
+        --presentation-pad: 8px;
+        --presentation-top: 58px;
+        --presentation-bottom: 104px;
+        --presentation-gap: 8px;
+        --presentation-webcam-rail: clamp(112px, 28vw, 160px);
+    }
+
+    body.is-live.is-screen-presenting .host-tile,
+    body.is-live.is-training-fullscreen.is-screen-presenting .host-tile {
+        border-radius: 6px !important;
     }
 }

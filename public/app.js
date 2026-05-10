@@ -70,6 +70,9 @@ const tabUsers = document.querySelector("#tab-users");
 const peers = new Map();
 const participants = new Map();
 const rtcConfig = {
+    bundlePolicy: "max-bundle",
+    rtcpMuxPolicy: "require",
+    iceCandidatePoolSize: 4,
     iceServers: [
         { urls: "stun:stun.l.google.com:19302" },
         { urls: "stun:stun1.l.google.com:19302" }
@@ -91,11 +94,52 @@ let muted = false;
 let auth = JSON.parse(localStorage.getItem("treinalive_auth") || "null");
 let appFullscreenFallback = false;
 const ALL_MATERIALS_VALUE = "__all_materials__";
+const SCREEN_CAPTURE_FRAME_RATE = 60;
+const SCREEN_SHARE_MAX_BITRATE = 12000000;
 const STREAM_QUALITY_PRESETS = {
-    auto: { label: "Auto", targetHeight: 0, maxBitrate: 0 },
-    "480p": { label: "480p", targetHeight: 480, maxBitrate: 800000 },
-    "720p": { label: "720p", targetHeight: 720, maxBitrate: 1800000 },
-    "1080p": { label: "1080p", targetHeight: 1080, maxBitrate: 4000000 }
+    auto: { label: "Auto", targetHeight: 0, maxBitrate: SCREEN_SHARE_MAX_BITRATE, maxFramerate: SCREEN_CAPTURE_FRAME_RATE },
+    "480p": { label: "480p", targetHeight: 480, maxBitrate: 1600000, maxFramerate: SCREEN_CAPTURE_FRAME_RATE },
+    "720p": { label: "720p", targetHeight: 720, maxBitrate: 4500000, maxFramerate: SCREEN_CAPTURE_FRAME_RATE },
+    "1080p": { label: "1080p", targetHeight: 1080, maxBitrate: 9000000, maxFramerate: SCREEN_CAPTURE_FRAME_RATE }
+};
+const SCREEN_CAPTURE_OPTIONS = {
+    video: {
+        displaySurface: "monitor",
+        logicalSurface: true,
+        cursor: "always",
+        resizeMode: "none",
+        frameRate: { ideal: SCREEN_CAPTURE_FRAME_RATE, max: SCREEN_CAPTURE_FRAME_RATE }
+    },
+    audio: true,
+    monitorTypeSurfaces: "include",
+    selfBrowserSurface: "exclude",
+    surfaceSwitching: "include",
+    systemAudio: "include"
+};
+const BASIC_SCREEN_CAPTURE_OPTIONS = {
+    video: true,
+    audio: true
+};
+const CAMERA_CAPTURE_OPTIONS = {
+    video: {
+        facingMode: "user",
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        frameRate: { ideal: 30, max: 30 }
+    },
+    audio: false
+};
+const BASIC_CAMERA_CAPTURE_OPTIONS = {
+    video: true,
+    audio: false
+};
+const MICROPHONE_CAPTURE_OPTIONS = {
+    audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+    },
+    video: false
 };
 
 if ("ResizeObserver" in window && hostTile) {
@@ -190,7 +234,7 @@ shareButton.addEventListener("click", async () => {
         if (!hasLocalVideo()) {
             await startCamera();
         }
-        screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+        screenStream = await captureFullScreenStream();
         if (isPresentationOwner()) {
             localVideo.srcObject = screenStream;
         }
@@ -198,8 +242,11 @@ shareButton.addEventListener("click", async () => {
         publishActiveStream();
         announceScreenShareState(true);
         screenStream.getVideoTracks()[0].addEventListener("ended", stopScreenShare);
+        if (isTrainingFullscreen()) {
+            await switchToPresentationFullscreen();
+        }
     } catch (error) {
-        alert("Compartilhamento de tela cancelado.");
+        alert(screenCaptureErrorMessage(error));
     }
 });
 
@@ -450,6 +497,7 @@ function updateRemoteScrollControls() {
     const visibleTiles = [...remoteGrid.children].filter((child) => !child.hidden);
     const hasWebcams = visibleTiles.length > 0;
     remoteStrip.classList.toggle("has-webcams", hasWebcams);
+    body.classList.toggle("has-side-webcams", Boolean(session && hasWebcams));
 
     if (!hasWebcams) {
         remoteStrip.classList.remove("is-scrollable");
@@ -507,13 +555,92 @@ function updateRoomPrivacyUi() {
     }
 }
 
+async function captureFullScreenStream() {
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+        throw new Error("Este navegador nao suporta espelhamento de tela.");
+    }
+
+    let stream;
+    try {
+        stream = await navigator.mediaDevices.getDisplayMedia(SCREEN_CAPTURE_OPTIONS);
+    } catch (error) {
+        if (!shouldRetryScreenCaptureWithoutHints(error)) {
+            throw error;
+        }
+        stream = await navigator.mediaDevices.getDisplayMedia(BASIC_SCREEN_CAPTURE_OPTIONS);
+    }
+
+    const videoTrack = stream.getVideoTracks()[0];
+    if (!videoTrack) {
+        stopStream(stream);
+        throw new Error("Nenhuma tela foi selecionada.");
+    }
+
+    await prepareScreenCaptureTrack(videoTrack);
+    ensureEntireScreenCapture(videoTrack, stream);
+    return stream;
+}
+
+function shouldRetryScreenCaptureWithoutHints(error) {
+    return ["TypeError", "OverconstrainedError", "ConstraintNotSatisfiedError"].includes(error?.name);
+}
+
+async function prepareScreenCaptureTrack(track) {
+    if ("contentHint" in track) {
+        track.contentHint = "motion";
+    }
+
+    if (typeof track.applyConstraints !== "function") {
+        return;
+    }
+
+    await track.applyConstraints({
+        cursor: "always",
+        resizeMode: "none",
+        frameRate: { ideal: SCREEN_CAPTURE_FRAME_RATE, max: SCREEN_CAPTURE_FRAME_RATE }
+    }).catch(() => {});
+}
+
+function ensureEntireScreenCapture(track, stream) {
+    const settings = typeof track.getSettings === "function" ? track.getSettings() : {};
+    if (settings.displaySurface && settings.displaySurface !== "monitor") {
+        stopStream(stream);
+        throw new Error("Voce selecionou uma janela ou aba. Clique em Espelhar tela de novo e escolha a aba Tela inteira na janela de compartilhamento do navegador.");
+    }
+
+    const width = Number(settings.width) || 0;
+    const height = Number(settings.height) || 0;
+    if (!width || !height || window.screen?.isExtended) {
+        return;
+    }
+
+    const scale = Math.max(1, window.devicePixelRatio || 1);
+    const expectedWidth = Math.max(window.screen.width || 0, window.screen.availWidth || 0) * scale;
+    const expectedHeight = Math.max(window.screen.height || 0, window.screen.availHeight || 0) * scale;
+    const captureLooksSmallerThanScreen = expectedWidth && expectedHeight
+        && (width < expectedWidth * 0.92 || height < expectedHeight * 0.9);
+
+    if (captureLooksSmallerThanScreen) {
+        stopStream(stream);
+        throw new Error("A captura veio menor que o monitor. Clique em Espelhar tela de novo e selecione Tela inteira, nao Janela ou Guia.");
+    }
+}
+
+function screenCaptureErrorMessage(error) {
+    if (["AbortError", "NotAllowedError"].includes(error?.name)) {
+        return "Compartilhamento de tela cancelado.";
+    }
+
+    return error?.message || "Nao foi possivel iniciar o espelhamento de tela.";
+}
+
 async function toggleTrainingFullscreen() {
     if (isTrainingFullscreen()) {
         await exitTrainingFullscreen();
         return;
     }
 
-    const target = livePanel || localVideo;
+    const target = trainingFullscreenTarget();
     const requestFullscreen = fullscreenRequestFor(target);
 
     if (!requestFullscreen) {
@@ -534,6 +661,24 @@ async function toggleTrainingFullscreen() {
     }
     updateFullscreenButton();
     queueStageVideoHeightSync();
+}
+
+async function switchToPresentationFullscreen() {
+    const target = trainingFullscreenTarget();
+    if (!target || fullscreenElement() === target) {
+        return;
+    }
+
+    const requestFullscreen = fullscreenRequestFor(target);
+    if (!requestFullscreen) {
+        return;
+    }
+
+    await asPromise(requestFullscreen.call(target)).catch(() => {});
+}
+
+function trainingFullscreenTarget() {
+    return livePanel || localVideo;
 }
 
 async function exitTrainingFullscreen() {
@@ -800,7 +945,7 @@ async function startCamera() {
 
     try {
         const includeAudio = isPresentationOwner() && !hasLocalAudio();
-        const cameraStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: includeAudio });
+        const cameraStream = await getCameraStream();
         if (!localStream) {
             localStream = new MediaStream();
         }
@@ -816,16 +961,33 @@ async function startCamera() {
             updateLocalCameraPreview();
         }
         if (includeAudio) {
-            setLocalMuted(false);
+            await startMicrophone({ silent: true });
         }
         updateCameraButton();
         updateLocalCameraPreview();
         publishActiveStream();
         return localStream;
     } catch (error) {
-        alert("Nao foi possivel acessar a webcam. Verifique as permissoes do navegador.");
+        alert(mediaAccessErrorMessage("camera", error));
         return null;
     }
+}
+
+async function getCameraStream() {
+    ensureMediaDevicesAvailable("camera");
+
+    try {
+        return await navigator.mediaDevices.getUserMedia(CAMERA_CAPTURE_OPTIONS);
+    } catch (error) {
+        if (!shouldRetryCameraWithoutHints(error)) {
+            throw error;
+        }
+        return navigator.mediaDevices.getUserMedia(BASIC_CAMERA_CAPTURE_OPTIONS);
+    }
+}
+
+function shouldRetryCameraWithoutHints(error) {
+    return ["OverconstrainedError", "ConstraintNotSatisfiedError", "TypeError"].includes(error?.name);
 }
 
 function stopLocalCamera() {
@@ -859,9 +1021,10 @@ function handleLocalCameraEnded() {
     renderMainPresentation();
 }
 
-async function startMicrophone() {
+async function startMicrophone(options = {}) {
     try {
-        const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        ensureMediaDevicesAvailable("microfone");
+        const audioStream = await navigator.mediaDevices.getUserMedia(MICROPHONE_CAPTURE_OPTIONS);
         const audioTrack = audioStream.getAudioTracks()[0];
         if (!audioTrack) {
             throw new Error("Microfone indisponivel");
@@ -876,8 +1039,38 @@ async function startMicrophone() {
         setLocalMuted(false);
         publishActiveStream();
     } catch (error) {
-        alert("Nao foi possivel acessar o microfone. Verifique as permissoes do navegador.");
+        if (!options.silent) {
+            alert(mediaAccessErrorMessage("microfone", error));
+        }
     }
+}
+
+function ensureMediaDevicesAvailable(kind) {
+    if (navigator.mediaDevices?.getUserMedia) {
+        return;
+    }
+
+    throw new Error(`${kind}:mediaDevicesUnavailable`);
+}
+
+function mediaAccessErrorMessage(kind, error) {
+    if (!window.isSecureContext) {
+        return `No iPhone/iPad, ${kind} so funciona em HTTPS. Abra o TreinaLive por um endereco https:// ou use um tunel HTTPS. Acesso por http://IP:8080 bloqueia a permissao.`;
+    }
+
+    if (error?.name === "NotAllowedError" || error?.name === "SecurityError") {
+        return `Nao foi possivel acessar ${kind}. No iOS, verifique Ajustes > Safari > Camera/Microfone e permita o acesso para este site.`;
+    }
+
+    if (error?.message?.includes("mediaDevicesUnavailable")) {
+        return `Este navegador nao liberou ${kind}. No iPhone/iPad, use Safari atualizado e abra o site em HTTPS.`;
+    }
+
+    if (error?.name === "NotFoundError" || error?.name === "DevicesNotFoundError") {
+        return `Nenhuma ${kind === "camera" ? "camera" : "entrada de audio"} foi encontrada neste dispositivo.`;
+    }
+
+    return `Nao foi possivel acessar ${kind}. Verifique as permissoes do navegador.`;
 }
 
 function hasLocalAudio() {
@@ -917,9 +1110,7 @@ function updateLocalCameraPreview() {
         `;
     }
 
-    if (isPresentationOwner() && screenStream) {
-        mainVideoColumn.appendChild(tile);
-    } else if (tile.parentElement !== remoteGrid) {
+    if (tile.parentElement !== remoteGrid) {
         remoteGrid.appendChild(tile);
     }
 
@@ -1128,8 +1319,11 @@ function createPeerConnection(peer, shouldOffer) {
 
     connection.addEventListener("track", (event) => {
         entry.stream = event.streams[0];
+        configureLowLatencyReceiver(event.receiver);
+        configureLowLatencyVideo(entry.video);
         entry.video.srcObject = entry.stream;
         if (peer.id === presentationOwnerId && !isPresentationOwner()) {
+            configureLowLatencyVideo(localVideo);
             localVideo.srcObject = entry.stream;
         }
     });
@@ -1162,7 +1356,9 @@ async function createOffer(peerId) {
 function createRemoteTile(peer) {
     let tile = document.querySelector(`[data-peer-id="${peer.id}"]`);
     if (tile) {
-        return tile.querySelector("video");
+        const video = tile.querySelector("video");
+        configureLowLatencyVideo(video);
+        return video;
     }
 
     tile = document.createElement("article");
@@ -1177,11 +1373,34 @@ function createRemoteTile(peer) {
         </div>
     `;
     remoteGrid.appendChild(tile);
+    configureLowLatencyVideo(tile.querySelector("video"));
     sortWebcamTiles();
     syncPresentationTileVisibility();
     queueRemoteScrollControlsUpdate();
     updateParticipants();
     return tile.querySelector("video");
+}
+
+function configureLowLatencyReceiver(receiver) {
+    if (receiver && "playoutDelayHint" in receiver) {
+        receiver.playoutDelayHint = 0;
+    }
+}
+
+function configureLowLatencyVideo(video) {
+    if (!video) {
+        return;
+    }
+    video.autoplay = true;
+    video.playsInline = true;
+    video.preload = "auto";
+    if ("disablePictureInPicture" in video) {
+        video.disablePictureInPicture = true;
+    }
+    if ("latencyHint" in video) {
+        video.latencyHint = "interactive";
+    }
+    video.play?.().catch(() => {});
 }
 
 function removePeer(peerId) {
@@ -1295,20 +1514,28 @@ async function applyPeerQuality(peerId, quality) {
 
     const parameters = videoSender.getParameters();
     parameters.encodings = parameters.encodings?.length ? parameters.encodings : [{}];
+    parameters.degradationPreference = screenStream ? "maintain-framerate" : "balanced";
     const encoding = parameters.encodings[0];
+    encoding.maxBitrate = preset.maxBitrate || SCREEN_SHARE_MAX_BITRATE;
+    encoding.maxFramerate = preset.maxFramerate || SCREEN_CAPTURE_FRAME_RATE;
+    encoding.priority = "high";
+    encoding.networkPriority = "high";
 
     if (preset.targetHeight) {
         const sourceHeight = videoSender.track.getSettings().height || preset.targetHeight;
         encoding.scaleResolutionDownBy = Math.max(1, sourceHeight / preset.targetHeight);
-        encoding.maxBitrate = preset.maxBitrate;
-        encoding.maxFramerate = 30;
     } else {
         delete encoding.scaleResolutionDownBy;
-        delete encoding.maxBitrate;
-        delete encoding.maxFramerate;
     }
 
-    await videoSender.setParameters(parameters).catch(() => {});
+    try {
+        await videoSender.setParameters(parameters);
+    } catch (error) {
+        delete encoding.priority;
+        delete encoding.networkPriority;
+        delete parameters.degradationPreference;
+        await videoSender.setParameters(parameters).catch(() => {});
+    }
 }
 
 function buildPresentationStream(videoSource) {
@@ -1619,6 +1846,7 @@ function renderMainPresentation() {
         localVideo.srcObject = null;
         return;
     }
+    configureLowLatencyVideo(localVideo);
     if (isPresentationOwner()) {
         localVideo.srcObject = getActivePresentationStream();
         return;
@@ -2123,5 +2351,10 @@ function escapeHtml(value) {
         .replaceAll("'", "&#039;");
 }
 
+function ensureSideWebcamStyles() {
+    document.querySelector("#sideWebcamStyles")?.remove();
+}
+
+ensureSideWebcamStyles();
 updateRoomPrivacyUi();
 initAuth();

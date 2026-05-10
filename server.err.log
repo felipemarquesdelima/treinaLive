@@ -1,0 +1,2 @@
+mai. 10, 2026 4:57:48 PM sun.net.httpserver.ExchangeImpl sendResponseHeaders
+WARNING: sendResponseHeaders: being invoked with a content length for a HEAD request
