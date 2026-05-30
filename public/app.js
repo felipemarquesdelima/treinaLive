@@ -605,7 +605,7 @@ function ensureEntireScreenCapture(track, stream) {
     const settings = typeof track.getSettings === "function" ? track.getSettings() : {};
     if (settings.displaySurface && settings.displaySurface !== "monitor") {
         stopStream(stream);
-        throw new Error("Voce selecionou uma janela ou aba. Clique em Espelhar tela de novo e escolha a aba Tela inteira na janela de compartilhamento do navegador.");
+        throw new Error("Voce selecionou uma janela ou aba. Clique em Espelhar tela de novo e escolha Tela inteira para incluir a barra de tarefas.");
     }
 
     const width = Number(settings.width) || 0;
@@ -614,15 +614,21 @@ function ensureEntireScreenCapture(track, stream) {
         return;
     }
 
+    const screenWidth = Number(window.screen.width) || 0;
+    const screenHeight = Number(window.screen.height) || 0;
     const scale = Math.max(1, window.devicePixelRatio || 1);
-    const expectedWidth = Math.max(window.screen.width || 0, window.screen.availWidth || 0) * scale;
-    const expectedHeight = Math.max(window.screen.height || 0, window.screen.availHeight || 0) * scale;
-    const captureLooksSmallerThanScreen = expectedWidth && expectedHeight
-        && (width < expectedWidth * 0.92 || height < expectedHeight * 0.9);
+    const cssScreenRatio = screenWidth && screenHeight
+        ? Math.min(width / screenWidth, height / screenHeight)
+        : 1;
+    const deviceScreenRatio = screenWidth && screenHeight
+        ? Math.min(width / (screenWidth * scale), height / (screenHeight * scale))
+        : 1;
+    const bestScreenRatio = Math.max(cssScreenRatio, deviceScreenRatio);
+    const captureLooksSmallerThanScreen = screenWidth && screenHeight && bestScreenRatio < 0.97;
 
     if (captureLooksSmallerThanScreen) {
         stopStream(stream);
-        throw new Error("A captura veio menor que o monitor. Clique em Espelhar tela de novo e selecione Tela inteira, nao Janela ou Guia.");
+        throw new Error("A captura veio menor que o monitor e pode estar sem a barra de tarefas. Clique em Espelhar tela de novo e escolha Tela inteira, nao Janela ou Guia.");
     }
 }
 
